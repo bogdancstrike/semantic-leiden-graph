@@ -1,0 +1,73 @@
+id,text,desk,lang
+rail-001,Romania plans new investments in railway infrastructure and faster intercity rail connections.,transport,en
+rail-002,The railway operator announced funding for modernization of passenger stations across Romania.,transport,en
+rail-003,Engineers presented a plan to renovate tracks and reduce travel times between major Romanian cities.,transport,en
+rail-004,A new rail modernization project will replace signaling systems and upgrade several stations.,transport,en
+rail-005,Public transport planners are evaluating higher-speed train services on heavily used routes.,transport,en
+rail-006,Construction teams began rehabilitation work on an important railway corridor.,transport,en
+fb-001,Real Madrid won its league match after scoring twice in the second half.,sports,en
+fb-002,Barcelona prepared a new tactical setup for its next European football match.,sports,en
+fb-003,The Spanish football league published the match schedule for next weekend.,sports,en
+fb-004,A late goal decided a closely contested football match in Madrid.,sports,en
+fb-005,The coach rotated several players before an important Champions League fixture.,sports,en
+fb-006,Supporters celebrated after their football club secured three points at home.,sports,en
+ai-001,A new open-source language model focuses on efficient local inference on consumer hardware.,ai,en
+ai-002,Researchers published a benchmark comparing large language models for software development tasks.,ai,en
+ai-003,A smaller artificial intelligence model achieved improved reasoning performance with fewer parameters.,ai,en
+ai-004,Developers released new tooling for serving quantized language models on local GPUs.,ai,en
+ai-005,The latest machine learning benchmark compares coding accuracy across several instruction-tuned models.,ai,en
+ai-006,An open model community released updated weights designed for faster inference.,ai,en
+wx-001,Heavy rainfall caused flooding in several regions of southern Europe.,weather,en
+wx-002,Meteorologists warned that thunderstorms may continue across Spain during the weekend.,weather,en
+wx-003,Emergency services responded to flooded streets after intense rain in Madrid.,weather,en
+wx-004,A slow-moving storm produced unusually high rainfall totals over several hours.,weather,en
+wx-005,"Weather agencies issued warnings for strong wind, hail, and localized flash flooding.",weather,en
+wx-006,Several roads were temporarily closed after overnight storms caused water accumulation.,weather,en
+sec-001,Security researchers disclosed a vulnerability affecting a widely used web framework.,security,en
+sec-002,A software vendor released an emergency patch for a critical authentication vulnerability.,security,en
+sec-003,Administrators were advised to update exposed servers after publication of a new security flaw.,security,en
+sec-004,Researchers demonstrated an attack that can bypass an incorrectly configured access-control check.,security,en
+sec-005,A security update fixes a remote code execution issue in a popular server component.,security,en
+sec-006,Incident response teams are scanning internet-facing systems for a newly disclosed vulnerability.,security,en
+space-001,A reusable rocket completed a successful launch and deployed multiple satellites into orbit.,space,en
+space-002,Engineers completed a static fire test ahead of the next orbital launch attempt.,space,en
+space-003,A space agency published new images captured by a deep-space telescope.,space,en
+space-004,Mission controllers adjusted a spacecraft trajectory before its planned planetary flyby.,space,en
+space-005,A commercial launch provider postponed liftoff because of unfavorable weather conditions.,space,en
+space-006,A satellite constellation operator confirmed deployment of another batch of communications satellites.,space,en
+nrg-001,Battery storage projects are expanding as electricity grids add more renewable generation.,energy,en
+nrg-002,A new solar farm began supplying electricity to the regional power grid.,energy,en
+nrg-003,Energy companies are investing in large grid-scale batteries to balance intermittent generation.,energy,en
+nrg-004,Wind generation reached a new daily high during a period of strong offshore winds.,energy,en
+nrg-005,Grid operators activated storage capacity to reduce evening electricity demand peaks.,energy,en
+nrg-006,Researchers reported improved cycle life for a new battery chemistry intended for stationary storage.,energy,en
+db-001,Database engineers introduced a new query optimization technique for analytical workloads.,databases,en
+db-002,A distributed database release improves replication performance across multiple regions.,databases,en
+db-003,Developers benchmarked PostgreSQL query latency after changing index and cache configuration.,databases,en
+db-004,A database migration moved a high-volume service from a single node to a replicated cluster.,databases,en
+db-005,Engineers reduced API latency by redesigning several expensive SQL queries.,databases,en
+db-006,A new database feature improves execution plans for complex joins and aggregations.,databases,en
+k8s-001,Kubernetes operators deployed a new application version using progressive delivery and automated rollback.,platform,en
+k8s-002,A platform team migrated several workloads to a new Kubernetes cluster with GitOps deployment.,platform,en
+k8s-003,Engineers diagnosed pod scheduling failures caused by resource pressure on worker nodes.,platform,en
+k8s-004,An Argo CD deployment synchronized application manifests after a configuration change.,platform,en
+k8s-005,The observability team added Prometheus metrics and distributed traces to a Kubernetes service.,platform,en
+k8s-006,A cluster upgrade introduced a newer container runtime and updated networking components.,platform,en
+kafka-001,A Kafka consumer group experienced increased lag during a burst of incoming events.,streaming,en
+kafka-002,Engineers increased partition parallelism to improve throughput in a streaming data pipeline.,streaming,en
+kafka-003,A message-processing service was redesigned to make retries idempotent and prevent duplicate writes.,streaming,en
+kafka-004,A Kafka deployment added brokers to handle higher event volume and improve fault tolerance.,streaming,en
+kafka-005,Developers introduced dead-letter handling for messages that repeatedly fail processing.,streaming,en
+kafka-006,Streaming workers now commit offsets only after downstream persistence succeeds.,streaming,en
+rail-ro-001,Guvernul României pregătește investiții noi în infrastructura de căi ferate și în trenuri interregionale mai rapide.,transport,ro
+rail-ro-002,"CFR a anunțat modernizarea gărilor din București, Brașov și Cluj pentru a reduce timpii de călătorie.",transport,ro
+rail-ro-003,Lucrările de reabilitare a liniei ferate dintre Constanța și București vor continua până la sfârșitul anului.,transport,ro
+fb-ro-001,Echipa gazdă a câștigat meciul de fotbal după un gol marcat în ultimul minut.,sports,ro
+fb-ro-002,Antrenorul a schimbat mai mulți jucători înaintea meciului decisiv din cupa europeană.,sports,ro
+wx-ro-001,Meteorologii au emis un cod portocaliu de ploi torențiale și vijelii pentru mai multe județe.,weather,ro
+wx-ro-002,Inundațiile au blocat mai multe drumuri județene după ploile abundente de peste noapte.,weather,ro
+sec-ro-001,Cercetătorii în securitate au descoperit o vulnerabilitate critică într-un server web folosit pe scară largă.,security,ro
+sec-ro-002,Administratorii sunt sfătuiți să aplice urgent actualizarea de securitate pentru serverele expuse.,security,ro
+ai-ro-001,Un nou model de limbaj open-source rulează eficient pe plăci video obișnuite.,ai,ro
+nrg-ro-001,Un nou parc fotovoltaic a început să livreze energie în rețeaua națională.,energy,ro
+k8s-ro-001,Echipa de platformă a migrat serviciile într-un cluster Kubernetes nou folosind Argo CD.,platform,ro

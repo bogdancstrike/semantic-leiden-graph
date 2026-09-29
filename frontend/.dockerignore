@@ -1,0 +1,7 @@
+# Host node_modules must never reach the image: `COPY . .` would overwrite the
+# Linux install from `npm ci` with host-native binaries (esbuild/rollup on macOS/Windows).
+node_modules
+dist
+*.tsbuildinfo
+.vite
+npm-debug.log*

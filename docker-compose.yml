@@ -1,0 +1,165 @@
+name: semantic-leiden-poc
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  elasticsearch:
+    <<: *restart
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ES_VERSION:-9.5.1}
+    container_name: semantic-es
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"   # local only; enable TLS outside a laptop
+      xpack.ml.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-changeme-elastic}
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+      bootstrap.memory_lock: "true"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u elastic:$${ELASTIC_PASSWORD} 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    mem_limit: 2g
+
+  qdrant:
+    <<: *restart
+    image: qdrant/qdrant:${QDRANT_VERSION:-v1.19.1}
+    container_name: semantic-qdrant
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 2g
+
+  neo4j:
+    <<: *restart
+    image: neo4j:${NEO4J_VERSION:-2026.09.0}
+    container_name: semantic-neo4j
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-password123}
+      NEO4J_PLUGINS: '["graph-data-science"]'
+      NEO4J_dbms_security_procedures_unrestricted: "gds.*"
+      NEO4J_dbms_security_procedures_allowlist: "gds.*"
+      NEO4J_server_memory_heap_initial__size: 1g
+      NEO4J_server_memory_heap_max__size: 1g
+      NEO4J_server_memory_pagecache_size: 512m
+    volumes:
+      - neo4j-data:/data
+      - neo4j-plugins:/plugins
+    healthcheck:
+      # Password is derived from NEO4J_AUTH inside the container. Do not add a NEO4J_PASSWORD
+      # env var here: the image turns NEO4J_* variables into config settings and refuses to start.
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#neo4j/}\" 'RETURN gds.version()' >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 40
+      start_period: 40s
+    mem_limit: 3g
+
+  app:
+    <<: *restart
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: semantic-leiden-api:0.4.0
+    container_name: semantic-api
+    environment:
+      ES_URL: http://elasticsearch:9200
+      ES_USERNAME: elastic
+      ES_PASSWORD: ${ELASTIC_PASSWORD:-changeme-elastic}
+      ES_INDEX: ${ES_INDEX:-documents}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-document_vectors}
+      QDRANT_PREFER_GRPC: ${QDRANT_PREFER_GRPC:-true}
+      NEO4J_URI: neo4j://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password123}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-64}
+      NEIGHBOR_K: ${NEIGHBOR_K:-12}
+      MIN_SIMILARITY: ${MIN_SIMILARITY:-0.58}
+      LEIDEN_GAMMA: ${LEIDEN_GAMMA:-1.0}
+      LEIDEN_RANDOM_SEED: ${LEIDEN_RANDOM_SEED:-42}
+      LEIDEN_MIN_COMMUNITY_SIZE: ${LEIDEN_MIN_COMMUNITY_SIZE:-2}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-1073741824}
+      UPLOAD_MAX_ROWS: ${UPLOAD_MAX_ROWS:-10000000}
+      TEXT_MAX_CHARS: ${TEXT_MAX_CHARS:-20000}
+      QDRANT_INDEXING_THRESHOLD_KB: ${QDRANT_INDEXING_THRESHOLD_KB:-1000}
+      QDRANT_QUANTIZATION: ${QDRANT_QUANTIZATION:-false}
+      API_KEY: ${API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - hf-cache:/cache/huggingface
+    depends_on:
+      elasticsearch: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      neo4j: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    mem_limit: 3g
+
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: semantic-leiden-api:0.4.0
+    pull_policy: build
+    container_name: semantic-seed
+    command: ["python", "seed.py"]
+    environment:
+      API_URL: http://app:8000
+      SEED_FILE: ${SEED_FILE:-/app/data/sample.csv}
+      SEED_FORCE: ${SEED_FORCE:-false}
+      API_KEY: ${API_KEY:-}
+    depends_on:
+      app: { condition: service_healthy }
+    restart: "no"
+
+  ui:
+    <<: *restart
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: semantic-ui
+    ports:
+      - "3000:8080"
+    depends_on:
+      app: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  es-data:
+  qdrant-data:
+  neo4j-data:
+  neo4j-plugins:
+  hf-cache:
