@@ -7,9 +7,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from itertools import islice
 
+import numpy as np
+
 from app.analysis.candidates import Candidates
 from app.analysis.llm import INSTRUCTIONS, LLMClient
 from app.analysis.store import AnalysisStore
+from app.analysis.trends import add_trends, comparable
 from app.errors import BusyError, DependencyUnavailable, NotFoundError
 from app.pipeline.ingest import IdList
 from app.pipeline.jobs import JobCancelled
@@ -107,6 +110,7 @@ class AnalysisService:
                 "trigger": trigger,
                 "provider": self.settings.llm_provider,
                 "model": self.llm.model,
+                "embedding_model": self.container.embedder.model_name,
                 "instructions": INSTRUCTIONS,
                 "top_k": request.top_k,
                 "selection_mode": "auto",
@@ -200,6 +204,7 @@ class AnalysisService:
                                 "text": text,
                                 "truncated": len(text) < len(doc["text"]),
                                 "source": doc.get("source"),
+                                "metadata": doc.get("metadata"),
                                 "updated_at": doc.get("updated_at"),
                                 "strength": strengths.get(doc["id"], 0.0),
                             },
@@ -214,6 +219,7 @@ class AnalysisService:
                 : run["max_communities"]
             ]
             run.update(
+                assigned_documents=sum(counts.values()),
                 eligible_documents=sum(counts.values()) + unassigned,
                 unassigned_documents=unassigned,
                 eligible_communities=len(counts),
@@ -228,6 +234,28 @@ class AnalysisService:
                     for cid in selected
                 ],
             )
+
+            for community in run["communities"]:
+                ctx.check_cancelled()
+                ids = [
+                    d["id"] for d in candidates.prefix(community["community_id"], 20)
+                ]
+                vectors = list(c.vectors.vectors_for(ids).values())
+                if vectors:
+                    centroid = np.mean(vectors, axis=0)
+                    norm = float(np.linalg.norm(centroid))
+                    if norm:
+                        community["centroid"] = (centroid / norm).tolist()
+            baseline = None
+            for summary in self.store.list(100)["runs"]:
+                if (
+                    summary["id"] != run["id"]
+                    and summary["status"] in ("succeeded", "partial")
+                    and comparable(run, summary)
+                ):
+                    baseline = self.store.get(summary["id"])
+                    break
+            add_trends(run, baseline)
 
     def _run(self, ctx, run, document_ids=None):
         with Candidates() as candidates:

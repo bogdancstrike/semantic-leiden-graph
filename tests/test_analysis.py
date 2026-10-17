@@ -18,6 +18,7 @@ CONTENT = {
     "sentiment": "positive",
     "sentiment_reasoning": "The reporting describes expanded access.",
     "classifications": ["transport", "infrastructure"],
+    "entities": [],
 }
 EVIDENCE = {"documents": [{"id": "a", "text": "Railway stations receive funding."}]}
 
@@ -213,3 +214,20 @@ def test_all_rejected_keys_fail_without_leaking_them():
         llm.analyze(EVIDENCE)
     assert len(used) == 2
     assert "private" not in str(error.value)
+
+
+def test_named_entity_citations_must_reference_supplied_documents():
+    content = {
+        **CONTENT,
+        "entities": [
+            {"name": "Example Agency", "label": "ORG", "evidence_ids": ["invented"]}
+        ],
+    }
+    llm = LLMClient(
+        make_settings(gemini_api_key="test"),
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=response_for("gemini", content))
+        ),
+    )
+    with pytest.raises(DependencyUnavailable, match="invalid analysis JSON"):
+        llm.analyze(EVIDENCE)

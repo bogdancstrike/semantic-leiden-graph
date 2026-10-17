@@ -296,3 +296,100 @@ def test_graph_analysis_captures_member_ids_before_reclustering(client):
     assert run["scope"]["type"] == "communities"
     assert run["scope"]["documents"] == 2
     assert run["eligible_documents"] == 2
+
+
+def test_topic_filters_dates_sort_saved_entities_and_delete_preserve_documents(client):
+    client, c = client
+    auth = {"X-API-Key": "test-auth"}
+    client.post("/documents/batch", headers=auth, json={"texts": ["railway funding"]})
+    document_id = next(iter(c.es.docs))
+    run = {
+        "id": "filters",
+        "created_at": "2026-10-17T12:00:00+00:00",
+        "status": "succeeded",
+        "window_start": "2026-10-16T12:00:00+00:00",
+        "window_end": "2026-10-17T12:00:00+00:00",
+        "provider": "gemini",
+        "model": "test",
+        "communities": [
+            {
+                "community_id": cid,
+                "status": "succeeded",
+                "document_count": count,
+                "documents": [{"id": document_id}],
+                "analysis": {
+                    "title": f"Topic {cid}",
+                    "sentiment": "neutral",
+                    "classifications": ["transport" if cid == 1 else "energy"],
+                    "entities": [
+                        {
+                            "name": "Rail Agency",
+                            "label": "ORG",
+                            "evidence_ids": [document_id],
+                        }
+                    ],
+                },
+                "trend": {"direction": "rising" if cid == 1 else "stable"},
+            }
+            for cid, count in [(1, 3), (2, 10)]
+        ],
+    }
+    c.analysis.store.save(run)
+    c.analysis.store.add_members("filters", [(1, document_id), (2, document_id)])
+    assert (
+        client.get("/analysis/topics", params={"q": "Rail Agency"}).json()["total"] == 2
+    )
+    assert (
+        client.get(
+            "/analysis/topics",
+            params={"classification": "transport", "trend": "rising"},
+        ).json()["total"]
+        == 1
+    )
+    assert (
+        client.get("/analysis/topics", params={"topic_ids": ["filters:1"]}).json()[
+            "total"
+        ]
+        == 1
+    )
+    assert (
+        client.get("/analysis/topics?sort=documents").json()["topics"][0][
+            "community_id"
+        ]
+        == 2
+    )
+    assert (
+        client.get("/analysis/topics?sort=coverage").json()["topics"][0]["community_id"]
+        == 1
+    )
+    assert (
+        client.get(
+            "/analysis/topics", params={"created_after": "2026-10-18T00:00:00Z"}
+        ).json()["total"]
+        == 0
+    )
+    # Exclusive upper boundary, including timezone conversion, must be passed to the store.
+    assert (
+        client.get(
+            "/analysis/topics", params={"created_before": "2026-10-17T15:00:00+03:00"}
+        ).json()["total"]
+        == 0
+    )
+    assert (
+        client.get(
+            "/analysis/topics", params={"created_before": "2026-10-17T15:00:01+03:00"}
+        ).json()["total"]
+        == 2
+    )
+    assert client.delete("/analysis/topics/filters:1").status_code == 401
+    assert client.delete("/analysis/topics/filters:1", headers=auth).status_code == 200
+    assert client.get("/analysis/topics/filters:1").status_code == 404
+    assert client.get("/analysis/topics/filters:1/documents").status_code == 404
+    assert c.analysis.store.member_ids("filters", 1) == []
+    assert c.analysis.store.member_ids("filters", 2) == [document_id]
+    assert client.get("/analysis/topics").json()["total"] == 1
+    assert c.es.count() == 1
+    assert client.delete("/analysis/topics/filters:1", headers=auth).status_code == 404
+    run["status"] = "running"
+    c.analysis.store.save(run)
+    assert client.delete("/analysis/topics/filters:2", headers=auth).status_code == 409

@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     openai_model: str = Field(default="gpt-4.1-mini", min_length=1)
     llm_timeout_seconds: float = Field(default=90, gt=0, le=600)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
-    llm_max_output_tokens: int = Field(default=4096, ge=256, le=32768)
+    llm_max_output_tokens: int = Field(default=8192, ge=256, le=32768)
     llm_context_tokens: int | None = Field(default=None, ge=1024, le=10_000_000)
     llm_token_safety_margin: int = Field(default=1024, ge=0, le=32768)
     analysis_max_communities: int = Field(default=100, ge=1, le=1000)

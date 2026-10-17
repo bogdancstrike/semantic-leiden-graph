@@ -574,6 +574,7 @@ def make_settings(**overrides) -> Settings:
         graph_write_batch=100,
         sync_batch_size=10,
         api_key=None,
+        llm_max_output_tokens=4096,
         analysis_db_path=":memory:",
         analysis_schedule_enabled=False,
         gemini_api_key=None,

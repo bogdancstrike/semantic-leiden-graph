@@ -1,4 +1,5 @@
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, status
 
@@ -57,6 +58,12 @@ def topics(
     sentiment: Annotated[
         str | None, Query(pattern="^(positive|negative|neutral|mixed|unclear)$")
     ] = None,
+    classification: Annotated[str | None, Query(max_length=200)] = None,
+    trend: Literal["rising", "falling", "stable", "unavailable"] | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    sort: Literal["recent", "documents", "coverage"] = "recent",
+    topic_ids: Annotated[list[str] | None, Query(max_length=500)] = None,
     run_id: str | None = None,
     document_id: str | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 24,
@@ -65,6 +72,16 @@ def topics(
     return c.analysis.store.topics(
         query=q,
         sentiment=sentiment,
+        classification=classification,
+        trend=trend,
+        sort=sort,
+        topic_ids=set(topic_ids) if topic_ids is not None else None,
+        created_after=created_after.astimezone(UTC).isoformat()
+        if created_after
+        else None,
+        created_before=created_before.astimezone(UTC).isoformat()
+        if created_before
+        else None,
         run_id=run_id,
         document_id=document_id,
         limit=limit,
@@ -86,3 +103,12 @@ def topic_documents(
     offset: Annotated[int, Query(ge=0, le=1000)] = 0,
 ):
     return c.analysis.topic_documents(topic_id, q, limit, offset)
+
+
+@router.delete("/analysis/topics/{topic_id}", dependencies=[Depends(require_api_key)])
+def delete_topic(topic_id: str, c: ContainerDep):
+    topic = c.analysis.topic(topic_id)
+    c.analysis.store.delete_topic(
+        topic["run"]["id"], topic["community"]["community_id"]
+    )
+    return {"deleted": True, "topic_id": topic_id}

@@ -7,7 +7,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from app.errors import NotFoundError
+from app.errors import ConflictError, NotFoundError
 
 
 class AnalysisStore:
@@ -49,6 +49,12 @@ class AnalysisStore:
         *,
         query="",
         sentiment=None,
+        classification=None,
+        trend=None,
+        created_after=None,
+        created_before=None,
+        sort="recent",
+        topic_ids=None,
         run_id=None,
         document_id=None,
         limit=24,
@@ -71,6 +77,10 @@ class AnalysisStore:
         topics = []
         for row in rows:
             run = json.loads(row[0])
+            if created_after and run["created_at"] < created_after:
+                continue
+            if created_before and run["created_at"] >= created_before:
+                continue
             for community in run.get("communities", []):
                 if (
                     memberships is not None
@@ -79,6 +89,21 @@ class AnalysisStore:
                 ):
                     continue
                 analysis = community.get("analysis", {})
+                if (
+                    topic_ids is not None
+                    and f"{run['id']}:{community['community_id']}" not in topic_ids
+                ):
+                    continue
+                if classification and classification not in analysis.get(
+                    "classifications", []
+                ):
+                    continue
+                if (
+                    trend
+                    and community.get("trend", {}).get("direction", "unavailable")
+                    != trend
+                ):
+                    continue
                 if sentiment and analysis.get("sentiment", "unclear") != sentiment:
                     continue
                 if (
@@ -102,17 +127,84 @@ class AnalysisStore:
                         "document_count": community["document_count"],
                         "selected_documents": len(community["documents"]),
                         "analysis": analysis,
+                        "trend": community.get("trend"),
                         "error": community.get("error"),
                         "scope": run.get("scope"),
                     }
                 )
-        return {"topics": topics[offset : offset + limit], "total": len(topics)}
+        if sort == "documents":
+            topics.sort(key=lambda t: (-t["document_count"], t["id"]))
+        elif sort == "coverage":
+            topics.sort(
+                key=lambda t: (
+                    -t["selected_documents"] / max(t["document_count"], 1),
+                    -t["document_count"],
+                )
+            )
+        return {
+            "topics": topics[offset : offset + limit],
+            "total": len(topics),
+            "stats": {
+                "analyzed": sum(t["status"] == "succeeded" for t in topics),
+                "pending": sum(t["status"] == "pending" for t in topics),
+                "entities": len(
+                    {
+                        (e["name"], e["label"])
+                        for t in topics
+                        for e in t["analysis"].get("entities", [])
+                    }
+                ),
+                "trending": sum(
+                    t.get("trend", {}).get("direction") == "rising"
+                    for t in topics
+                    if t.get("trend")
+                ),
+                "narratives": sum(
+                    len(t["analysis"].get("narratives", [])) for t in topics
+                ),
+                "classifications": len(
+                    {
+                        label
+                        for t in topics
+                        for label in t["analysis"].get("classifications", [])
+                    }
+                ),
+            },
+        }
 
     def save(self, run: dict) -> None:
         with self._lock, self._db:
             self._db.execute(
                 "INSERT OR REPLACE INTO runs VALUES (?, ?, ?)",
                 (run["id"], run["created_at"], json.dumps(run)),
+            )
+
+    def delete_topic(self, run_id: str, cid: int):
+        with self._lock, self._db:
+            row = self._db.execute(
+                "SELECT body FROM runs WHERE id=?", (run_id,)
+            ).fetchone()
+            if row is None:
+                raise NotFoundError("Topic not found")
+            run = json.loads(row[0])
+            if run["status"] in ("queued", "running"):
+                raise ConflictError(
+                    "Wait for this analysis to finish before deleting a topic."
+                )
+            retained = [c for c in run["communities"] if c["community_id"] != cid]
+            if len(retained) == len(run["communities"]):
+                raise NotFoundError("Topic not found")
+            run["communities"] = retained
+            run["succeeded_communities"] = sum(
+                c["status"] == "succeeded" for c in retained
+            )
+            run["failed_communities"] = sum(c["status"] == "failed" for c in retained)
+            run.setdefault("deleted_topics", []).append(cid)
+            self._db.execute(
+                "UPDATE runs SET body=? WHERE id=?", (json.dumps(run), run_id)
+            )
+            self._db.execute(
+                "DELETE FROM members WHERE run_id=? AND cid=?", (run_id, cid)
             )
 
     def get(self, run_id: str) -> dict:

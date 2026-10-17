@@ -15,6 +15,13 @@ from app.config import Settings
 from app.errors import DependencyUnavailable
 
 
+class NamedEntity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=300)
+    label: Literal["PERSON", "ORG", "LOCATION", "EVENT", "PRODUCT", "OTHER"]
+    evidence_ids: list[str] = Field(min_length=1, max_length=5)
+
+
 class AnalysisContent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -28,6 +35,7 @@ class AnalysisContent(BaseModel):
         "unclear"
     )
     sentiment_reasoning: str = Field(default="", max_length=2000)
+    entities: list[NamedEntity] = Field(default_factory=list, max_length=50)
     classifications: list[str] = Field(default_factory=list, max_length=20)
 
 
@@ -42,7 +50,10 @@ claims or framing present in the documents, attributed rather than treated as tr
 sentiment (positive, negative, neutral, mixed or unclear), sentiment_reasoning (string
 explaining the sentiment of the reporting rather than your opinion), and classifications
 (array of concise topic/domain labels). Distinguish reported allegations from verified
-facts, and do not infer sentiment or narratives unsupported by the documents."""
+facts. Also return entities (an array of up to 20 salient named entities, each with
+name, label [PERSON, ORG, LOCATION, EVENT, PRODUCT, OTHER] and evidence_ids [1-5 supplied
+document IDs supporting the mention]). Do not invent entities; an empty array is valid.
+Do not infer sentiment or narratives unsupported by the documents."""
 
 
 class LLMClient:
@@ -281,7 +292,9 @@ class LLMClient:
                 )
             result = AnalysisContent.model_validate_json(output)
             allowed = {d["id"] for d in evidence["documents"]}
-            if not set(result.evidence_ids) <= allowed:
+            if not set(result.evidence_ids) <= allowed or any(
+                not set(entity.evidence_ids) <= allowed for entity in result.entities
+            ):
                 raise ValueError("unknown evidence")
             return result.model_dump()
         except (KeyError, IndexError, TypeError, ValueError, ValidationError):
