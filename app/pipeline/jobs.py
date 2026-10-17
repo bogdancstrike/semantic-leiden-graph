@@ -54,6 +54,7 @@ class Job:
     started_at: datetime | None = None
     finished_at: datetime | None = None
     cancel_requested: bool = False
+    on_cancel: Callable[[], None] | None = None
 
     def to_out(self) -> JobOut:
         return JobOut(
@@ -106,8 +107,8 @@ class JobManager:
         self._lock = threading.Lock()
         self._history = history
 
-    def submit(self, kind: str, fn: JobFn, params: dict[str, Any] | None = None) -> JobOut:
-        job = Job(id=uuid.uuid4().hex, kind=kind, params=params or {})
+    def submit(self, kind: str, fn: JobFn, params: dict[str, Any] | None = None, on_cancel: Callable[[], None] | None = None) -> JobOut:
+        job = Job(id=uuid.uuid4().hex, kind=kind, params=params or {}, on_cancel=on_cancel)
         with self._lock:
             self._jobs[job.id] = job
             self._evict()
@@ -116,10 +117,15 @@ class JobManager:
 
     def _run(self, job: Job, fn: JobFn) -> None:
         with self._lock:
-            if job.cancel_requested:
+            cancelled = job.cancel_requested
+            if cancelled:
                 job.status, job.phase, job.finished_at = JobStatus.cancelled, "cancelled", _now()
-                return
-            job.status, job.phase, job.started_at = JobStatus.running, "starting", _now()
+            else:
+                job.status, job.phase, job.started_at = JobStatus.running, "starting", _now()
+        if cancelled:
+            if job.on_cancel:
+                job.on_cancel()
+            return
         try:
             result = fn(JobContext(self, job))
             with self._lock:
@@ -166,8 +172,8 @@ class JobManager:
         with self._lock:
             return any(j.status in (JobStatus.queued, JobStatus.running) for j in self._jobs.values())
 
-    def shutdown(self) -> None:
+    def shutdown(self, *, wait: bool = False) -> None:
         with self._lock:
             for job in self._jobs.values():
                 job.cancel_requested = True
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        self._executor.shutdown(wait=wait, cancel_futures=not wait)

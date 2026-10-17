@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import routes_documents, routes_explore, routes_graph, routes_jobs, routes_search, routes_system
+from app.api import routes_analysis, routes_documents, routes_explore, routes_graph, routes_jobs, routes_search, routes_system
 from app.config import Settings, get_settings
 from app.container import Container
 from app.errors import AppError
@@ -68,6 +68,8 @@ def create_app(container_factory: Callable[[Settings], Container] | None = None)
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.container = initialize_with_retry(lambda: factory(settings), settings)
+        app.state.container.analysis.store.recover_interrupted()
+        app.state.container.analysis_scheduler.start()
         log.info("Semantic Leiden API %s ready", VERSION)
         yield
         app.state.container.close()
@@ -120,6 +122,7 @@ def create_app(container_factory: Callable[[Settings], Container] | None = None)
 
     for router in (
         routes_system.router,
+        routes_analysis.router,
         routes_documents.router,
         routes_search.router,
         routes_explore.router,

@@ -30,6 +30,7 @@ from typing import Any
 
 from elasticsearch import Elasticsearch
 from elasticsearch import NotFoundError as ESNotFound
+from elasticsearch.helpers import scan
 
 from app.config import Settings
 from app.errors import DependencyUnavailable, ValidationFailed
@@ -831,6 +832,14 @@ class ElasticStore:
             operations=[{"delete": {"_index": self.alias, "_id": doc_id}} for doc_id in ids], refresh="wait_for"
         )
         return sum(1 for item in response["items"] if item.get("delete", {}).get("result") == "deleted")
+
+    def iter_analysis_documents(self, start: str, end: str) -> Iterable[dict]:
+        """Scroll snapshot: filter by content update time before centrality ranking."""
+        for hit in scan(
+            self.client, index=self.alias, size=1000,
+            query={"query": {"range": {"updated_at": {"gte": start, "lt": end}}}, "_source": DISPLAY_FIELDS},
+        ):
+            yield {"id": hit["_id"], **hit["_source"]}
 
     def iter_ids(self, batch: int = 1000) -> Iterable[str]:
         search_after = None

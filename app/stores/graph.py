@@ -335,6 +335,19 @@ class GraphStore:
             )
         return out
 
+    def analysis_strengths(self, ids: list[str]) -> dict[str, float]:
+        """Within-community weighted degree for eligible documents, in bounded batches."""
+        rows = self._read(
+            """
+            UNWIND $ids AS id
+            MATCH (d:Document {id: id})
+            OPTIONAL MATCH (d)-[r:SIMILAR_TO]-(o:Document)
+            WHERE o.communityId = d.communityId
+            RETURN d.id AS id, sum(coalesce(r.score, 0.0)) AS strength
+            """, ids=ids,
+        )
+        return {r["id"]: float(r["strength"]) for r in rows}
+
     def community_detail(self, community_id: int, limit: int = 10) -> dict:
         central = self._read(
             """

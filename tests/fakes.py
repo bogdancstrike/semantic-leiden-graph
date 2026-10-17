@@ -369,6 +369,12 @@ class FakeElastic:
     def bulk_delete(self, ids):
         return sum(1 for i in ids if self.delete(i))
 
+    def iter_analysis_documents(self, start, end):
+        low, high = datetime.fromisoformat(start), datetime.fromisoformat(end)
+        for doc_id, doc in list(self.docs.items()):
+            if low <= datetime.fromisoformat(doc["updated_at"]) < high:
+                yield {"id": doc_id, **doc}
+
     def iter_ids(self, batch: int = 1000):
         return iter(list(self.docs))
 
@@ -497,6 +503,9 @@ class FakeGraph:
             for c, s in sorted(sizes.items(), key=lambda kv: -kv[1])
         ]
 
+    def analysis_strengths(self, ids):
+        return {doc_id: sum(score for (a, b), score in self.edges.items() if doc_id in (a, b) and self.nodes.get(a) == self.nodes.get(b)) for doc_id in ids}
+
     def community_detail(self, cid, limit):
         members = [n for n, c in self.nodes.items() if c == cid][:limit]
         return {"central": [{"id": m, "strength": 1.0, "degree": 1} for m in members], "neighbouring_communities": []}
@@ -556,6 +565,10 @@ def make_settings(**overrides) -> Settings:
         graph_write_batch=100,
         sync_batch_size=10,
         api_key=None,
+        analysis_db_path=":memory:",
+        analysis_schedule_enabled=False,
+        gemini_api_key=None,
+        openai_api_key=None,
         _env_file=None,
     )
     base.update(overrides)

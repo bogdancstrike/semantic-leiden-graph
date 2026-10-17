@@ -14,6 +14,13 @@ NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)
 # ---------------------------------------------------------------------------- documents
 
 
+class AnalysisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    top_k: int | None = Field(default=None, ge=1, le=50)
+    lookback_hours: int = Field(default=24, ge=1, le=8760)
+    max_communities: int | None = Field(default=None, ge=1, le=1000)
+
+
 class DocumentIn(BaseModel):
     id: str | None = Field(default=None, max_length=256, description="External ID; generated from content when omitted")
     text: NonBlank

@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from app.config import Settings
+from app.analysis.service import AnalysisService
+from app.analysis.scheduler import AnalysisScheduler
 from app.embedder import EmbedderProtocol
 from app.errors import BusyError, NotFoundError, ValidationFailed
 from app.ids import (
@@ -82,6 +84,8 @@ class Container:
         self._min_size = settings.leiden_min_community_size
         self.pipeline = IngestionPipeline(settings, embedder, es, vectors, graph, policy=lambda: self._policy)
         self.search_engine = SearchEngine(settings, embedder, es, vectors, self.executor)
+        self.analysis = AnalysisService(self)
+        self.analysis_scheduler = AnalysisScheduler(self.analysis)
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -99,7 +103,9 @@ class Container:
             self._min_size = max(2, int(last[0]["min_community_size"]))
 
     def close(self) -> None:
-        self.jobs.shutdown()
+        self.analysis_scheduler.stop()
+        self.jobs.shutdown(wait=True)
+        self.analysis.store.close()
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.graph.close()
 
