@@ -10,6 +10,7 @@ from itertools import islice
 import numpy as np
 
 from app.analysis.candidates import Candidates
+from app.analysis.entities import entity_statistics
 from app.analysis.llm import INSTRUCTIONS, LLMClient
 from app.analysis.store import AnalysisStore
 from app.analysis.trends import add_trends, comparable
@@ -31,7 +32,7 @@ class AnalysisService:
         self.store = AnalysisStore(self.settings.analysis_db_path)
         self._submission_lock = threading.Lock()
 
-    def topic(self, topic_id):
+    def topic(self, topic_id, *, include_statistics=True):
         try:
             run_id, cid = topic_id.rsplit(":", 1)
             cid = int(cid)
@@ -43,6 +44,15 @@ class AnalysisService:
         )
         if community is None:
             raise NotFoundError("Topic not found")
+        if (
+            include_statistics
+            and "entity_statistics" not in community
+            and community.get("analysis", {}).get("entities") is not None
+        ):
+            community.setdefault(
+                "entity_statistics",
+                entity_statistics(community["analysis"], community["documents"]),
+            )
         return {
             "id": topic_id,
             "run": {k: v for k, v in run.items() if k != "communities"},
@@ -50,7 +60,7 @@ class AnalysisService:
         }
 
     def topic_documents(self, topic_id, query, limit, offset):
-        topic = self.topic(topic_id)
+        topic = self.topic(topic_id, include_statistics=False)
         run, community = topic["run"], topic["community"]
         position = total = 0
         documents = []
@@ -310,6 +320,9 @@ class AnalysisService:
                     community["graph"] = graph
                     self.store.save(run)
                     community["analysis"] = self.llm.analyze(evidence)
+                    community["entity_statistics"] = entity_statistics(
+                        community["analysis"], community["documents"]
+                    )
                     community["status"] = "succeeded"
                 except DependencyUnavailable as exc:
                     community.update(status="failed", error=str(exc))

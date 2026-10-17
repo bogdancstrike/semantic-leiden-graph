@@ -1,11 +1,12 @@
 import { useCallback, useRef, useState } from 'react'
-import { Alert, Button, Card, Collapse, Descriptions, Dropdown, Empty, Input, List, Pagination, Progress, Select, Skeleton, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Card, Collapse, Descriptions, Dropdown, Empty, Input, List, Pagination, Progress, Select, Skeleton, Space, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { ArrowLeftOutlined, ApartmentOutlined, DownloadOutlined, ExpandOutlined, StarFilled, StarOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '@/api/client'
 import { PageHeader } from '@/components/PageHeader'
 import { GraphCanvas, CANVAS_PALETTES, type GraphCanvasHandle, type GraphArrangement } from '@/components/graph/GraphCanvas'
+import { TopicEntities } from '@/components/TopicEntities'
 import { GraphContextMenu } from '@/components/graph/GraphContextMenu'
 import { TopicDeleteButton } from '@/components/TopicDeleteButton'
 import { useDocumentDrawer } from '@/components/DocumentDrawer'
@@ -37,7 +38,6 @@ export default function TopicDetailPage() {
   const [snapshotQuery, setSnapshotQuery] = useState('')
   const [contextPoint, setContextPoint] = useState<{ x: number; y: number } | null>(null)
   const closeContextMenu = useCallback(() => setContextPoint(null), [])
-  const [entityType, setEntityType] = useState<string | undefined>()
   const topic = useQuery({ queryKey: ['topic', id], queryFn: ({ signal }) => api.topic(id, signal), refetchInterval: (q) => q.state.data?.community.status === 'pending' ? 2_000 : false })
   const docs = useQuery({ queryKey: ['topic-documents', id, debounced, page], queryFn: ({ signal }) => api.topicDocuments(id, debounced, (page - 1) * 20, signal), enabled: !!topic.data && tab === 'documents' })
   if (topic.isLoading) return <div className="nu-page"><Skeleton active paragraph={{ rows: 8 }} /></div>
@@ -88,12 +88,7 @@ export default function TopicDetailPage() {
               {lines('Limitations and uncertainties', analysis.uncertainties)}</> : <Empty description="Analysis has not completed for this topic." />}
             <Collapse items={[{ key: 'evidence', label: `Evidence sent to the LLM (${community.documents.length} documents)`, children: evidence }]} />
           </div> },
-          { key: 'entities', label: `Named entities${analysis?.entities ? ` (${analysis.entities.length})` : ''}`, children: <>
-            <Typography.Paragraph type="secondary">Named entities extracted from the analyzed evidence. Search an entity to investigate its mentions within the saved community.</Typography.Paragraph>
-            {!analysis?.entities && <Alert type="info" message="Named entities were not extracted in this historical report. Run a new analysis to include them." />}
-            <Select aria-label="Entity type" placeholder="All entity types" allowClear value={entityType} onChange={setEntityType} style={{ width: 190, marginBottom: 16 }} options={['PERSON', 'ORG', 'LOCATION', 'EVENT', 'PRODUCT', 'OTHER'].map(value => ({ value, label: value }))} />
-            <Table rowKey={(e) => `${e.name}:${e.label}`} dataSource={(analysis?.entities ?? []).filter(e => !entityType || e.label === entityType)} pagination={{ pageSize: 15, hideOnSinglePage: true }} columns={[{ title: 'Entity', dataIndex: 'name', render: (name: string) => <Button type="link" onClick={() => searchEntity(name)}>{name}</Button> }, { title: 'Type', dataIndex: 'label', render: (label: string) => <Tag>{label}</Tag> }, { title: 'Supporting evidence', dataIndex: 'evidence_ids', render: (ids: string[]) => <Space wrap>{ids.map(docId => <Button key={docId} size="small" onClick={() => drawer.open(docId)}>{community.documents.find(d => d.id === docId)?.external_id ?? docId.slice(0, 8)}</Button>)}</Space> }]} />
-          </> },
+          { key: 'entities', label: `Named entities${analysis?.entities ? ` (${analysis.entities.length})` : ''}`, children: <TopicEntities entities={analysis?.entities} statistics={community.entity_statistics} onSearch={searchEntity} onOpen={drawer.open} /> },
           { key: 'graph', label: 'Graph snapshot', children: graph?.nodes.length ? <>
             <Typography.Paragraph type="secondary">The saved evidence graph: {graph.nodes.length} central documents, {graph.links.length} links. Snapshot rendering is limited to 80 nodes; document search covers the full saved community.</Typography.Paragraph>
             <Space wrap style={{ marginBottom: 12 }}><Select aria-label="Topic graph arrangement" value={layout} onChange={setLayout} options={[{ value: 'communities', label: 'Auto-arrange' }, { value: 'force', label: 'Force layout' }, { value: 'circle', label: 'Circular' }, { value: 'grid', label: 'Grid' }]} style={{ width: 160 }} /><Button icon={<ExpandOutlined />} onClick={() => graphRef.current?.fit()}>Fit to view</Button><Button icon={<DownloadOutlined />} onClick={() => graphRef.current?.exportPng()}>Export PNG</Button></Space>

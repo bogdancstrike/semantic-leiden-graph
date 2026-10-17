@@ -720,6 +720,7 @@ export default function GraphPage() {
         extra={
           <Space size={4} wrap>
             <Button onClick={() => setShowNavigator(v => !v)} aria-pressed={showNavigator}>Communities</Button>
+            <Tooltip title="Show colored outlines and names around detected communities"><label className="graph-highlight-toggle"><Switch aria-label="Highlight communities" checked={showBoundaries} onChange={setShowBoundaries} size="small" /> Highlight communities</label></Tooltip>
             <Select aria-label="Graph arrangement" value={arrangement} onChange={setArrangement} style={{ width: 160 }} options={[{ value: 'communities', label: 'Group communities' }, { value: 'force', label: 'Force layout' }, { value: 'circle', label: 'Circular layout' }, { value: 'grid', label: 'Grid layout' }]} />
             <Button onClick={() => { setArrangement('communities'); setPaused(false); canvasRef.current?.rearrange() }}>Auto-arrange</Button>
             <Popover title="Graph appearance" trigger="click" content={<Space direction="vertical"><label><Switch aria-label="Document labels" checked={showLabels} onChange={setShowLabels} size="small" /> Document labels</label><label><Switch aria-label="Community boundaries" checked={showBoundaries} onChange={setShowBoundaries} size="small" /> Community boundaries</label><Typography.Text>Community separation</Typography.Text><Slider aria-label="Community separation" min={.5} max={3} step={.1} value={separation} onChange={setSeparation} style={{ width: 200 }} /><Button onClick={() => { setSeparation(1); setShowLabels(false); setShowBoundaries(true); setArrangement('communities'); setPaused(false); canvasRef.current?.rearrange() }}>Reset layout</Button></Space>}><Button>Appearance</Button></Popover>
@@ -734,7 +735,8 @@ export default function GraphPage() {
                   <li><kbd>Scroll</kbd> or pinch to zoom</li>
                   <li><kbd>Click</kbd> a node to select it and see its links</li>
                   <li><kbd>Double-click</kbd> a node to open the document</li>
-                  <li>Legend chips hide or show a community</li>
+                  <li>Use community checkboxes to show or hide a group; click its name to highlight it</li>
+                  <li>Highlight communities toggles the colored outlines and group names</li>
                   <li>The similarity band keeps edges between its two handles</li>
                 </ul>
               }

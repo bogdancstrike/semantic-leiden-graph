@@ -316,7 +316,13 @@ def test_topic_filters_dates_sort_saved_entities_and_delete_preserve_documents(c
                 "community_id": cid,
                 "status": "succeeded",
                 "document_count": count,
-                "documents": [{"id": document_id}],
+                "documents": [
+                    {
+                        "id": document_id,
+                        "text": "Rail Agency funds stations. Rail Agency confirms.",
+                        "updated_at": "2026-10-17T12:00:00Z",
+                    }
+                ],
                 "analysis": {
                     "title": f"Topic {cid}",
                     "sentiment": "neutral",
@@ -380,6 +386,19 @@ def test_topic_filters_dates_sort_saved_entities_and_delete_preserve_documents(c
             "/analysis/topics", params={"created_before": "2026-10-17T15:00:01+03:00"}
         ).json()["total"]
         == 2
+    )
+    details = client.get("/analysis/topics/filters:1").json()
+    statistics = details["community"]["entity_statistics"]
+    assert statistics["mentions"] == 2 and statistics["documents_with_entities"] == 1
+    assert statistics["entities"][0]["document_count"] == 1
+    assert statistics["entities"][0]["document_share_percent"] == 100
+    # Statistics describe saved evidence, unaffected by current document edits.
+    c.es.docs[document_id]["text"] = "Changed source text without that entity"
+    assert (
+        client.get("/analysis/topics/filters:1").json()["community"][
+            "entity_statistics"
+        ]
+        == statistics
     )
     assert client.delete("/analysis/topics/filters:1").status_code == 401
     assert client.delete("/analysis/topics/filters:1", headers=auth).status_code == 200

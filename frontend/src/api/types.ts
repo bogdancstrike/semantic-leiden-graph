@@ -353,6 +353,26 @@ export interface AnalysisConfig {
 }
 
 export interface NamedEntity { name: string; label: 'PERSON' | 'ORG' | 'LOCATION' | 'EVENT' | 'PRODUCT' | 'OTHER'; evidence_ids: string[] }
+export interface EntityInsight extends NamedEntity {
+  mention_count?: number
+  document_count?: number
+  document_share_percent?: number
+  first_updated_at?: string | null
+  last_updated_at?: string | null
+  sources?: { source: string | null; documents: number; mentions: number }[]
+  timeline?: { date: string; documents: number; mentions: number }[]
+  examples?: { id: string; external_id: string; text: string; source: string | null; updated_at: string | null }[]
+  co_occurrences?: { name: string; label: string; document_count: number }[]
+}
+export interface EntityStatistics {
+  scope: 'analyzed_evidence'
+  documents: number
+  truncated_documents: number
+  mentions: number
+  documents_with_entities: number
+  types: Record<string, number>
+  entities: EntityInsight[]
+}
 export interface TopicTrend { direction: 'rising' | 'falling' | 'stable' | 'unavailable'; reason: string; share_change_percent?: number; previous_documents?: number; current_documents?: number; baseline_topic_id?: string; similarity?: number }
 
 export interface CommunityAnalysis {
@@ -362,6 +382,7 @@ export interface CommunityAnalysis {
   error?: string
   documents: { id: string; external_id: string; text: string; truncated: boolean; strength: number; updated_at: string; source: string | null }[]
   trend?: TopicTrend
+  entity_statistics?: EntityStatistics
   graph?: GraphData
   token_budget?: { context_tokens: number; output_reserve: number; safety_margin: number; input_budget: number; input_tokens: number; selected_documents: number }
   analysis?: { title: string; summary: string; key_findings: string[]; uncertainties: string[]; evidence_ids: string[]; narratives?: string[]; sentiment?: string; sentiment_reasoning?: string; classifications?: string[]; entities?: NamedEntity[] }

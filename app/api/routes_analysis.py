@@ -107,7 +107,7 @@ def topic_documents(
 
 @router.delete("/analysis/topics/{topic_id}", dependencies=[Depends(require_api_key)])
 def delete_topic(topic_id: str, c: ContainerDep):
-    topic = c.analysis.topic(topic_id)
+    topic = c.analysis.topic(topic_id, include_statistics=False)
     c.analysis.store.delete_topic(
         topic["run"]["id"], topic["community"]["community_id"]
     )

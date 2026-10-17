@@ -8,6 +8,7 @@ export const report = {
   eligible_documents: 3, unassigned_documents: 0,
   communities: [{ community_id: 0, document_count: 3, status: 'succeeded',
     documents: [{ id: 'doc-1', external_id: 'rail-1', text: 'Railway stations receive funding.', truncated: false, strength: 1.2 }],
+    entity_statistics: { scope: 'analyzed_evidence', documents: 1, truncated_documents: 0, mentions: 2, documents_with_entities: 1, types: { ORG: 1 }, entities: [{ name: 'Rail Agency', label: 'ORG', evidence_ids: ['doc-1'], mention_count: 2, document_count: 1, document_share_percent: 100, first_updated_at: '2026-10-17T12:00:00Z', last_updated_at: '2026-10-17T12:00:00Z', sources: [{ source: 'news.csv', documents: 1, mentions: 2 }], timeline: [{ date: '2026-10-17', documents: 1, mentions: 2 }], examples: [{ id: 'doc-1', external_id: 'rail-1', text: 'Rail Agency funds stations. Rail Agency confirms.', source: 'news.csv', updated_at: '2026-10-17T12:00:00Z' }], co_occurrences: [] }] },
     graph: { nodes: [{ id: 'doc-1', external_id: 'rail-1', text: 'Railway funding', community_id: 0 }], links: [] },
     token_budget: { context_tokens: 10000, input_tokens: 200, input_budget: 5000, output_reserve: 4000, safety_margin: 1000 },
     analysis: { title: 'Railway investment', summary: 'Railway stations receive funding.', key_findings: ['Station upgrades'], narratives: ['Investment improves railway access'], sentiment: 'positive', sentiment_reasoning: 'Reporting emphasizes improved access', classifications: ['transport'], entities: [{ name: 'Rail Agency', label: 'ORG', evidence_ids: ['doc-1'] }], uncertainties: ['Limited sample'], evidence_ids: ['doc-1'] },
@@ -224,9 +225,15 @@ test('graph card offers descriptive communities, arrangement, appearance and zoo
   await page.getByRole('button', { name: 'Auto-arrange', exact: true }).click()
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click()
   await page.getByRole('button', { name: 'Zoom out', exact: true }).click()
+  const highlights = page.getByRole('switch', { name: 'Highlight communities', exact: true })
+  await expect(highlights).toBeChecked()
+  await highlights.click()
+  await expect(highlights).not.toBeChecked()
   await page.getByRole('button', { name: 'Appearance', exact: true }).click()
   await page.getByRole('switch', { name: 'Document labels' }).click()
+  await expect(page.getByRole('switch', { name: 'Community boundaries' })).not.toBeChecked()
   await page.getByRole('switch', { name: 'Community boundaries' }).click()
+  await expect(highlights).toBeChecked()
   await page.getByRole('button', { name: 'Reset layout' }).click()
   expect(errors).toEqual([])
 })
@@ -261,4 +268,25 @@ test('topic snapshot searches node text, toggles selection and opens a node cont
   await expect(page.getByText('Selected node: rail-1', { exact: true })).toHaveCount(0)
   await page.getByRole('searchbox', { name: 'Search snapshot node text' }).fill('no such content')
   await expect(page.getByText('0 matching nodes', { exact: true })).toBeVisible()
+})
+
+
+test('entity intelligence shows counted appearances, evidence, sources, dates and export', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/topics/report-1%3A0')
+  await page.getByRole('tab', { name: /^Named entities/ }).click()
+  await expect(page.getByRole('cell', { name: '2', exact: true })).toBeVisible()
+  await expect(page.getByRole('cell', { name: /100% of evidence/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Expand row', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Source distribution' })).toBeVisible()
+  await expect(page.getByText('Rail Agency funds stations. Rail Agency confirms.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Activity by document update date (UTC)' })).toBeVisible()
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export entities CSV' }).click()
+  expect((await download).suggestedFilename()).toBe('topic-entities.csv')
+  await page.getByRole('spinbutton', { name: 'Minimum entity appearances' }).fill('3')
+  await expect(page.getByRole('button', { name: 'Rail Agency', exact: true })).toHaveCount(0)
+  await page.getByRole('spinbutton', { name: 'Minimum entity appearances' }).fill('0')
+  await page.getByRole('textbox', { name: 'Find named entity' }).fill('missing')
+  await expect(page.getByRole('button', { name: 'Rail Agency', exact: true })).toHaveCount(0)
 })
