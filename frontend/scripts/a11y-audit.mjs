@@ -20,6 +20,8 @@ const CASES = [
   ['dashboard', '/', []],
   ['topics', '/topics', []],
   ['topic analysis', '/topics', [['click', '.topic-card h3 a'], ['wait', 800]]],
+  ['topic entities', '/topics', [['click', '.topic-card h3 a'], ['wait', 600], ['click', '[role="tab"][id$="-tab-entities"]'], ['wait', 600]]],
+  ['topic entity details', '/topics', [['click', '.topic-card h3 a'], ['wait', 600], ['click', '[role="tab"][id$="-tab-entities"]'], ['click', 'button.ant-table-row-expand-icon'], ['wait', 600]]],
   ['topic graph snapshot', '/topics', [['click', '.topic-card h3 a'], ['wait', 600], ['text', 'Graph snapshot'], ['wait', 800]]],
   ['topic document search', '/topics', [['click', '.topic-card h3 a'], ['wait', 600], ['text', 'Search topic documents'], ['wait', 600]]],
   ['topic LLM activity', '/topics', [['click', '.topic-card h3 a'], ['wait', 600], ['text', 'LLM activity'], ['wait', 600]]],

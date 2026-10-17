@@ -9,7 +9,7 @@ export const report = {
   communities: [{ community_id: 0, document_count: 3, status: 'succeeded',
     documents: [{ id: 'doc-1', external_id: 'rail-1', text: 'Railway stations receive funding.', truncated: false, strength: 1.2 }],
     entity_statistics: { scope: 'analyzed_evidence', documents: 1, truncated_documents: 0, mentions: 2, documents_with_entities: 1, types: { ORG: 1 }, entities: [{ name: 'Rail Agency', label: 'ORG', evidence_ids: ['doc-1'], mention_count: 2, document_count: 1, document_share_percent: 100, first_updated_at: '2026-10-17T12:00:00Z', last_updated_at: '2026-10-17T12:00:00Z', sources: [{ source: 'news.csv', documents: 1, mentions: 2 }], timeline: [{ date: '2026-10-17', documents: 1, mentions: 2 }], examples: [{ id: 'doc-1', external_id: 'rail-1', text: 'Rail Agency funds stations. Rail Agency confirms.', source: 'news.csv', updated_at: '2026-10-17T12:00:00Z' }], co_occurrences: [] }] },
-    graph: { nodes: [{ id: 'doc-1', external_id: 'rail-1', text: 'Railway funding', community_id: 0 }], links: [] },
+    graph: { nodes: [{ id: 'doc-1', external_id: 'rail-1', text: 'Railway funding', community_id: 0 }, { id: 'doc-2', external_id: 'rail-2', text: 'Station investment', community_id: 0 }], links: [{ source: 'doc-1', target: 'doc-2', score: 0.9 }] },
     token_budget: { context_tokens: 10000, input_tokens: 200, input_budget: 5000, output_reserve: 4000, safety_margin: 1000 },
     analysis: { title: 'Railway investment', summary: 'Railway stations receive funding.', key_findings: ['Station upgrades'], narratives: ['Investment improves railway access'], sentiment: 'positive', sentiment_reasoning: 'Reporting emphasizes improved access', classifications: ['transport'], entities: [{ name: 'Rail Agency', label: 'ORG', evidence_ids: ['doc-1'] }], uncertainties: ['Limited sample'], evidence_ids: ['doc-1'] },
   }],
@@ -249,6 +249,8 @@ test('topic snapshot searches node text, toggles selection and opens a node cont
   await page.getByRole('combobox', { name: 'Find a topic graph document' }).press('ArrowDown')
   await page.getByText('rail-1 · Railway funding', { exact: true }).click()
   await expect(page.getByText('Selected node: rail-1', { exact: true })).toBeVisible()
+  // Cross the initial reduced-motion auto-fit timer: an explicit focus must keep its camera.
+  await page.waitForTimeout(100)
   const canvas = page.getByRole('img', { name: /Semantic graph with/ })
   const bounds = await canvas.boundingBox()
   const center = { x: bounds!.width / 2, y: bounds!.height / 2 }

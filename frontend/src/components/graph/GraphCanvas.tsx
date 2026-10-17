@@ -560,8 +560,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     ref,
     () => ({
       fit,
-      rearrange: () => { const sim = simRef.current; if (!sim) return; nodesRef.current.forEach((n, i) => { n.fx = n.fy = null; n.x = Math.cos(i * 2.39996) * Math.sqrt(i) * 12; n.y = Math.sin(i * 2.39996) * Math.sqrt(i) * 12; n.vx = n.vy = 0 }); sim.alpha(1); if (reducedMotion) { sim.stop(); sim.tick(200); requestDraw(); fit() } else sim.restart() },
-      zoomBy: (scale) => { if (canvasRef.current && zoomRef.current) select(canvasRef.current).call(zoomRef.current.scaleBy, scale) },
+      rearrange: () => { userMovedRef.current = false; const sim = simRef.current; if (!sim) return; nodesRef.current.forEach((n, i) => { n.fx = n.fy = null; n.x = Math.cos(i * 2.39996) * Math.sqrt(i) * 12; n.y = Math.sin(i * 2.39996) * Math.sqrt(i) * 12; n.vx = n.vy = 0 }); sim.alpha(1); if (reducedMotion) { sim.stop(); sim.tick(200); requestDraw(); fit() } else sim.restart() },
+      zoomBy: (scale) => { userMovedRef.current = true; if (canvasRef.current && zoomRef.current) select(canvasRef.current).call(zoomRef.current.scaleBy, scale) },
       focusCommunity: (id) => { const nodes = nodesRef.current.filter(n => n.community_id === id && isVisible(n)); if (!nodes.length || !canvasRef.current || !zoomRef.current) return; const xs = nodes.map(n => n.x ?? 0), ys = nodes.map(n => n.y ?? 0); const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys); const k = Math.min(4, sizeRef.current.width / (maxX-minX+80), sizeRef.current.height / (maxY-minY+80)); select(canvasRef.current).call(zoomRef.current.transform, zoomIdentity.translate(sizeRef.current.width / 2, sizeRef.current.height / 2).scale(k).translate(-(minX+maxX)/2, -(minY+maxY)/2)); userMovedRef.current = true },
       selectNode: (id: string) => {
         const node = nodesRef.current.find((n) => n.id === id)
@@ -603,7 +603,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
 
   // auto-fit once the first layout settles a bit
   useEffect(() => {
-    const timer = window.setTimeout(fit, reducedMotion ? 50 : 900)
+    const timer = window.setTimeout(() => { if (!userMovedRef.current) fit() }, reducedMotion ? 50 : 900)
     return () => window.clearTimeout(timer)
   }, [graph, fit, reducedMotion])
 

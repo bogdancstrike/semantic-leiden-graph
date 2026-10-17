@@ -680,3 +680,5 @@ mark.nu-mark {
 .entity-metrics > div { display: flex; flex-direction: column; gap: 6px; }.entity-metrics strong { font-size: 24px; color: var(--nu-text); }
 .entity-expanded { padding: 8px; }.entity-expanded .ant-typography { overflow-wrap: anywhere; }
 @media(max-width: 640px) { .entity-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+.topic-entity-insights .ant-btn-link { color: var(--nu-text); text-decoration: underline; text-underline-offset: 3px; }
