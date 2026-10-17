@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
 
@@ -18,7 +18,26 @@ class AnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     top_k: int | None = Field(default=None, ge=1, le=50)
     lookback_hours: int = Field(default=24, ge=1, le=8760)
+    time_range: Literal["relative", "custom", "all"] = "relative"
+    community_ids: list[int] | None = Field(default=None, min_length=1, max_length=1000)
+    window_start: datetime | None = None
+    window_end: datetime | None = None
     max_communities: int | None = Field(default=None, ge=1, le=1000)
+
+    @model_validator(mode="after")
+    def _window(self):
+        if self.time_range == "custom":
+            if self.window_start is None or self.window_end is None:
+                raise ValueError("Choose both the start and end of the period")
+            if self.window_start.tzinfo is None or self.window_end.tzinfo is None:
+                raise ValueError("Period timestamps must include a timezone")
+            self.window_start = self.window_start.astimezone(UTC)
+            self.window_end = self.window_end.astimezone(UTC)
+            if self.window_start >= self.window_end:
+                raise ValueError("Period start must be before its end")
+        elif self.window_start is not None or self.window_end is not None:
+            raise ValueError("Explicit start/end require time_range=custom")
+        return self
 
 
 class DocumentIn(BaseModel):

@@ -46,6 +46,7 @@ def ingest_batch(body: BatchInput, c: Container = Depends(get_container)):
 async def upload_csv(
     file: UploadFile = File(...),
     run_cluster: bool = Form(True),
+    run_analysis: bool = Form(False),
     rebuild: bool = Form(False),
     source: str | None = Form(None, max_length=128),
     id_column: str | None = Form(
@@ -74,6 +75,8 @@ async def upload_csv(
     c: Container = Depends(get_container),
 ):
     settings = get_settings()
+    if run_analysis:
+        c.analysis.llm.require_configured()
     keep = _parse_columns(metadata_columns)
     # Any name is accepted: the content decides (detect_layout refuses workbooks and archives).
     filename = Path(file.filename or "upload.csv").name
@@ -118,6 +121,7 @@ async def upload_csv(
         rebuild=rebuild,
         truncate_long_texts=truncate_long_texts,
         min_community_size=min_community_size,
+        run_analysis=run_analysis,
     )
 
 

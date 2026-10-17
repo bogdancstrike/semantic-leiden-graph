@@ -17,6 +17,8 @@ def analysis_container():
     c = make_container(
         make_settings(gemini_api_key="test", analysis_document_chars=100)
     )
+    c.analysis.llm.context_limits = Mock(return_value=(1_000_000, 4096))
+    c.analysis.llm.count_tokens = Mock(return_value=100)
     yield c
     c.close()
 
@@ -253,3 +255,41 @@ def test_scheduler_never_submits_when_disabled_or_unconfigured(enabled, key):
         c.analysis.submit.assert_not_called()
     finally:
         c.close()
+
+
+def test_automatic_selection_includes_all_eligible_documents(analysis_container):
+    c = analysis_container
+    seed(c)
+    c.analysis.llm.analyze = Mock(side_effect=successful)
+    job = c.analysis.submit(AnalysisRequest(), now=NOW)
+    assert wait(c, job).status == "succeeded"
+    report = c.analysis.store.get(job.params["analysis_id"])
+    assert report["top_k"] is None and report["selection_mode"] == "auto"
+    community = report["communities"][0]
+    assert len(community["documents"]) == 3
+    assert community["token_budget"]["selected_documents"] == 3
+    assert (
+        len(c.analysis.store.member_ids(report["id"], community["community_id"])) == 3
+    )
+    assert community["graph"]["nodes"]
+
+
+def test_custom_period_and_all_time_select_the_requested_documents(analysis_container):
+    c = analysis_container
+    ids = seed(c)
+    c.analysis.llm.analyze = Mock(side_effect=successful)
+    job = c.analysis.submit(
+        AnalysisRequest(
+            time_range="custom",
+            window_start=NOW - timedelta(hours=26),
+            window_end=NOW - timedelta(hours=24),
+        ),
+        now=NOW,
+    )
+    assert wait(c, job).status == "succeeded"
+    report = c.analysis.store.get(job.params["analysis_id"])
+    assert [d["id"] for d in report["communities"][0]["documents"]] == [ids[0]]
+    job = c.analysis.submit(AnalysisRequest(time_range="all"), now=NOW)
+    assert wait(c, job).status == "succeeded"
+    report = c.analysis.store.get(job.params["analysis_id"])
+    assert report["window_start"] is None and report["eligible_documents"] == 4

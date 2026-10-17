@@ -81,6 +81,7 @@ class IngestResult:
     failed: int = 0
     edges_upserted: int = 0
     touched_ids: IdList = field(default_factory=IdList)
+    accepted_ids: IdList | None = None
     documents: list[dict] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
 
@@ -125,8 +126,9 @@ class IngestionPipeline:
         total: int | None = None,
         progress: Progress = _noop,
         track_documents: bool = False,
+        track_ids: bool = False,
     ) -> IngestResult:
-        result = IngestResult()
+        result = IngestResult(accepted_ids=IdList() if track_ids else None)
         chunk: list[IngestDoc] = []
         for doc in docs:
             chunk.append(doc)
@@ -208,6 +210,8 @@ class IngestionPipeline:
             doc = latest[doc_id]
             result.errors.append({"row": doc.row, "external_id": doc.external_id, "reason": f"elasticsearch: {reason}"})
         result.failed += len(failed)
+        if result.accepted_ids is not None:
+            result.accepted_ids.extend(i for i in ids if i not in failed)
 
         embed_ids = [i for i in embed_ids if i not in failed]
         if embed_ids:

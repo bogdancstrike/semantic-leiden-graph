@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
+from typing import Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.analysis.budget import pack_evidence
 from app.config import Settings
 from app.errors import DependencyUnavailable
 
@@ -21,6 +23,12 @@ class AnalysisContent(BaseModel):
     key_findings: list[str] = Field(max_length=20)
     uncertainties: list[str] = Field(max_length=20)
     evidence_ids: list[str] = Field(min_length=1, max_length=50)
+    narratives: list[str] = Field(default_factory=list, max_length=20)
+    sentiment: Literal["positive", "negative", "neutral", "mixed", "unclear"] = (
+        "unclear"
+    )
+    sentiment_reasoning: str = Field(default="", max_length=2000)
+    classifications: list[str] = Field(default_factory=list, max_length=20)
 
 
 INSTRUCTIONS = """Analyze the supplied documents as evidence from one automatically discovered
@@ -29,7 +37,12 @@ every claim in the supplied evidence; do not invent facts or claim these samples
 the whole corpus. Describe the topic, key developments, agreements or contradictions,
 and limitations. Respond ONLY with a JSON object with title (string), summary (string),
 key_findings (array of strings), uncertainties (array of strings), and evidence_ids
-(nonempty array of supplied document ids)."""
+(nonempty array of at most 50 supplied document ids), narratives (array of the main
+claims or framing present in the documents, attributed rather than treated as truth),
+sentiment (positive, negative, neutral, mixed or unclear), sentiment_reasoning (string
+explaining the sentiment of the reporting rather than your opinion), and classifications
+(array of concise topic/domain labels). Distinguish reported allegations from verified
+facts, and do not infer sentiment or narratives unsupported by the documents."""
 
 
 class LLMClient:
@@ -46,9 +59,7 @@ class LLMClient:
 
     @property
     def configured(self) -> bool:
-        return (
-            getattr(self.settings, f"{self.settings.llm_provider}_api_key") is not None
-        )
+        return bool(self.keys)
 
     def require_configured(self) -> None:
         if not self.configured:
@@ -56,51 +67,63 @@ class LLMClient:
                 f"Set {self.settings.llm_provider.upper()}_API_KEY to enable analysis."
             )
 
-    def analyze(self, evidence: dict) -> dict:
+    @property
+    def keys(self):
+        secret = getattr(self.settings, f"{self.settings.llm_provider}_api_key")
+        return (
+            list(
+                dict.fromkeys(
+                    k.strip() for k in secret.get_secret_value().split(",") if k.strip()
+                )
+            )
+            if secret
+            else []
+        )
+
+    def _request(self, method: str, url: str, body=None):
         self.require_configured()
         s = self.settings
-        key = getattr(s, f"{s.llm_provider}_api_key").get_secret_value()
-        prompt = json.dumps(evidence, ensure_ascii=False)
-        if s.llm_provider == "gemini":
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{s.gemini_model}:generateContent"
-            headers = {"X-goog-api-key": key}
-            body = {
-                "systemInstruction": {"parts": [{"text": INSTRUCTIONS}]},
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "maxOutputTokens": s.llm_max_output_tokens,
-                },
-            }
-        else:
-            url = "https://api.openai.com/v1/responses"
-            headers = {"Authorization": f"Bearer {key}"}
-            body = {
-                "model": s.openai_model,
-                "instructions": INSTRUCTIONS,
-                "input": prompt,
-                "store": False,
-                "max_output_tokens": s.llm_max_output_tokens,
-                "text": {"format": {"type": "json_object"}},
-            }
-        # Never surface raw provider errors: they can echo input or credentials.
+        keys = self.keys
+        rejected = set()
+        index = getattr(self, "_preferred_key", 0) % len(keys)
         with httpx.Client(
             timeout=s.llm_timeout_seconds, transport=self.transport
         ) as client:
-            for attempt in range(s.llm_max_retries + 1):
+            for attempt in range(s.llm_max_retries + len(keys)):
+                available = [i for i in range(len(keys)) if i not in rejected]
+                if not available:
+                    break
+                while index in rejected:
+                    index = (index + 1) % len(keys)
+                headers = (
+                    {"X-goog-api-key": keys[index]}
+                    if s.llm_provider == "gemini"
+                    else {"Authorization": f"Bearer {keys[index]}"}
+                )
                 try:
-                    response = client.post(url, headers=headers, json=body)
+                    response = client.request(method, url, headers=headers, json=body)
                 except httpx.RequestError:
-                    if attempt < s.llm_max_retries:
+                    index = (index + 1) % len(keys)
+                    if attempt < s.llm_max_retries + len(keys) - 1:
                         self.sleep(min(2**attempt, 8))
                         continue
                     raise DependencyUnavailable(
                         f"{s.llm_provider} request timed out or could not connect."
                     ) from None
-                if (
-                    response.status_code in (429, 500, 502, 503, 504)
-                    and attempt < s.llm_max_retries
-                ):
+                invalid_key = response.status_code in (401, 403)
+                if response.status_code == 400:
+                    invalid_key = (
+                        "API_KEY_INVALID" in response.text
+                        or "API key not valid" in response.text
+                    )
+                if invalid_key:
+                    rejected.add(index)
+                    if len(rejected) < len(keys):
+                        index = (index + 1) % len(keys)
+                        continue
+                transient = response.status_code in (429, 500, 502, 503, 504)
+                if transient and attempt < s.llm_max_retries + len(keys) - 1:
+                    index = (index + 1) % len(keys)
                     self.sleep(min(2**attempt, 8))
                     continue
                 if not response.is_success:
@@ -109,32 +132,159 @@ class LLMClient:
                     )
                 try:
                     data = response.json()
-                    if s.llm_provider == "gemini":
-                        candidate = data["candidates"][0]
-                        if candidate.get("finishReason") != "STOP":
-                            raise ValueError("incomplete")
-                        output = "".join(
-                            p.get("text", "")
-                            for p in candidate["content"]["parts"]
-                            if not p.get("thought")
-                        )
-                    else:
-                        if data.get("status") != "completed":
-                            raise ValueError("incomplete")
-                        output = "".join(
-                            p["text"]
-                            for item in data["output"]
-                            if item.get("type") == "message"
-                            for p in item.get("content", [])
-                            if p.get("type") == "output_text"
-                        )
-                    result = AnalysisContent.model_validate_json(output)
-                    allowed = {d["id"] for d in evidence["documents"]}
-                    if not set(result.evidence_ids) <= allowed:
-                        raise ValueError("unknown evidence")
-                    return result.model_dump()
-                except (KeyError, IndexError, TypeError, ValueError, ValidationError):
+                except ValueError:
                     raise DependencyUnavailable(
-                        f"{s.llm_provider} returned incomplete, blocked or invalid analysis JSON."
+                        f"{s.llm_provider} returned invalid JSON."
                     ) from None
-        raise AssertionError("unreachable")
+                self._preferred_key = index
+                return data
+        raise DependencyUnavailable(
+            f"{s.llm_provider} could not use any configured API key."
+        )
+
+    def context_limits(self):
+        s = self.settings
+        cache = getattr(self, "_limits_cache", None)
+        if cache and cache[0] == self.model and time.monotonic() - cache[1] < 3600:
+            return cache[2]
+        if s.llm_provider == "gemini":
+            data = self._request(
+                "GET",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}",
+            )
+            try:
+                context = int(data["inputTokenLimit"])
+                output = min(s.llm_max_output_tokens, int(data["outputTokenLimit"]))
+                if context <= 0 or output <= 0:
+                    raise ValueError()
+            except (KeyError, ValueError, TypeError):
+                raise DependencyUnavailable(
+                    "Gemini did not return valid model token limits."
+                ) from None
+            if s.llm_context_tokens is not None:
+                context = min(context, s.llm_context_tokens)
+        else:
+            # https://developers.openai.com/api/docs/models/gpt-4.1-mini
+            known = self.model == "gpt-4.1-mini" or self.model.startswith(
+                "gpt-4.1-mini-2025-04-14"
+            )
+            context = s.llm_context_tokens or (1_047_576 if known else None)
+            if context is None:
+                raise DependencyUnavailable(
+                    "Set LLM_CONTEXT_TOKENS to the context window of this OpenAI model."
+                )
+            if known:
+                context = min(context, 1_047_576)
+            output = s.llm_max_output_tokens
+        self._limits_cache = (self.model, time.monotonic(), (context, output))
+        return context, output
+
+    def count_tokens(self, evidence):
+        if self.settings.llm_provider == "gemini":
+            data = self._request(
+                "POST",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:countTokens",
+                {
+                    "generateContentRequest": {
+                        "model": f"models/{self.model}",
+                        "systemInstruction": {"parts": [{"text": INSTRUCTIONS}]},
+                        "contents": [
+                            {
+                                "parts": [
+                                    {"text": json.dumps(evidence, ensure_ascii=False)}
+                                ]
+                            }
+                        ],
+                    }
+                },
+            )
+            try:
+                tokens = int(data["totalTokens"])
+                if tokens < 0:
+                    raise ValueError()
+                return tokens
+            except (KeyError, ValueError, TypeError):
+                raise DependencyUnavailable(
+                    "Gemini did not return a valid token count."
+                ) from None
+        import tiktoken
+
+        try:
+            encoding = tiktoken.encoding_for_model(self.model)
+        except KeyError:
+            encoding = tiktoken.get_encoding("o200k_base")
+        # Count instruction and evidence separately; margin covers Responses framing.
+        return len(encoding.encode(INSTRUCTIONS, disallowed_special=())) + len(
+            encoding.encode(
+                json.dumps(evidence, ensure_ascii=False), disallowed_special=()
+            )
+        )
+
+    def pack(self, metadata, candidates, total):
+        context, output = self.context_limits()
+        return pack_evidence(
+            metadata,
+            candidates,
+            total,
+            self.count_tokens,
+            context,
+            output,
+            self.settings.llm_token_safety_margin,
+        )
+
+    def analyze(self, evidence: dict) -> dict:
+        self.require_configured()
+        s = self.settings
+        prompt = json.dumps(evidence, ensure_ascii=False)
+        if s.llm_provider == "gemini":
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{s.gemini_model}:generateContent"
+            body = {
+                "systemInstruction": {"parts": [{"text": INSTRUCTIONS}]},
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "maxOutputTokens": self._limits_cache[2][1]
+                    if getattr(self, "_limits_cache", None)
+                    else s.llm_max_output_tokens,
+                },
+            }
+        else:
+            url = "https://api.openai.com/v1/responses"
+            body = {
+                "model": s.openai_model,
+                "instructions": INSTRUCTIONS,
+                "input": prompt,
+                "store": False,
+                "max_output_tokens": s.llm_max_output_tokens,
+                "text": {"format": {"type": "json_object"}},
+            }
+        data = self._request("POST", url, body)
+        try:
+            if s.llm_provider == "gemini":
+                candidate = data["candidates"][0]
+                if candidate.get("finishReason") != "STOP":
+                    raise ValueError("incomplete")
+                output = "".join(
+                    p.get("text", "")
+                    for p in candidate["content"]["parts"]
+                    if not p.get("thought")
+                )
+            else:
+                if data.get("status") != "completed":
+                    raise ValueError("incomplete")
+                output = "".join(
+                    p["text"]
+                    for item in data["output"]
+                    if item.get("type") == "message"
+                    for p in item.get("content", [])
+                    if p.get("type") == "output_text"
+                )
+            result = AnalysisContent.model_validate_json(output)
+            allowed = {d["id"] for d in evidence["documents"]}
+            if not set(result.evidence_ids) <= allowed:
+                raise ValueError("unknown evidence")
+            return result.model_dump()
+        except (KeyError, IndexError, TypeError, ValueError, ValidationError):
+            raise DependencyUnavailable(
+                f"{s.llm_provider} returned incomplete, blocked or invalid analysis JSON."
+            ) from None

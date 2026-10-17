@@ -335,6 +335,9 @@ class GraphStore:
             )
         return out
 
+    def ids_for_communities(self, community_ids: list[int]) -> list[str]:
+        return [r["id"] for r in self._read("MATCH (d:Document) WHERE d.communityId IN $ids RETURN d.id AS id ORDER BY id", ids=community_ids)]
+
     def analysis_strengths(self, ids: list[str]) -> dict[str, float]:
         """Within-community weighted degree for eligible documents, in bounded batches."""
         rows = self._read(

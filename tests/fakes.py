@@ -369,10 +369,16 @@ class FakeElastic:
     def bulk_delete(self, ids):
         return sum(1 for i in ids if self.delete(i))
 
+    def topic_documents(self, ids, query, size):
+        docs = [{"id": i, **self.docs[i], "score": 1.0} for i in ids if i in self.docs and (not query or query.casefold() in self.docs[i]["text"].casefold())]
+        docs.sort(key=lambda d: d["external_id"])
+        return {"total": len(docs), "documents": docs[:size]}
+
     def iter_analysis_documents(self, start, end):
-        low, high = datetime.fromisoformat(start), datetime.fromisoformat(end)
+        low, high = datetime.fromisoformat(start) if start else None, datetime.fromisoformat(end)
         for doc_id, doc in list(self.docs.items()):
-            if low <= datetime.fromisoformat(doc["updated_at"]) < high:
+            updated = datetime.fromisoformat(doc["updated_at"])
+            if (low is None or low <= updated) and updated < high:
                 yield {"id": doc_id, **doc}
 
     def iter_ids(self, batch: int = 1000):
@@ -502,6 +508,9 @@ class FakeGraph:
             {"community_id": c, "size": s, "internal_edges": 0, "boundary_edges": 0, "avg_similarity": 0.0, "density": 0.0, "conductance": 0.0}
             for c, s in sorted(sizes.items(), key=lambda kv: -kv[1])
         ]
+
+    def ids_for_communities(self, community_ids):
+        return sorted(i for i, cid in self.nodes.items() if cid in community_ids)
 
     def analysis_strengths(self, ids):
         return {doc_id: sum(score for (a, b), score in self.edges.items() if doc_id in (a, b) and self.nodes.get(a) == self.nodes.get(b)) for doc_id in ids}

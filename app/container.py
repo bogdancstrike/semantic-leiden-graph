@@ -45,6 +45,7 @@ from app.schemas import (
     GraphQueryRequest,
     SearchFilters,
     SearchRequest,
+    AnalysisRequest,
 )
 from app.search.conditions import FIELD_SPECS, count_rules, describe_tree, metadata_spec
 from app.search.engine import SearchEngine
@@ -178,12 +179,15 @@ class Container:
         rebuild: bool,
         truncate_long_texts: bool = False,
         min_community_size: int | None = None,
+        run_analysis: bool = False,
     ):
+        if run_analysis:
+            self.analysis.llm.require_configured()
         def job(ctx: JobContext) -> dict:
             try:
                 with self.structural(blocking=True):
                     return self._import_csv(
-                        ctx, path, layout, source, run_cluster, rebuild, truncate_long_texts, min_community_size
+                        ctx, path, layout, source, run_cluster or run_analysis, rebuild, truncate_long_texts, min_community_size, run_analysis
                     )
             finally:
                 path.unlink(missing_ok=True)
@@ -201,6 +205,7 @@ class Container:
                 "metadata_columns": list(layout.metadata_columns.values()),
                 "mapped_columns": list(layout.metadata_columns),
                 "run_cluster": run_cluster,
+                "run_analysis": run_analysis,
                 "rebuild": rebuild,
                 "truncate_long_texts": truncate_long_texts,
                 "min_community_size": min_community_size,
@@ -222,6 +227,7 @@ class Container:
         rebuild: bool,
         truncate_long_texts: bool = False,
         min_community_size: int | None = None,
+        run_analysis: bool = False,
     ) -> dict:
         started = time.perf_counter()
         ctx.progress("counting", 0, None)
@@ -249,7 +255,7 @@ class Container:
                     tally["truncated"] += 1
                 yield IngestDoc(item.external_id, item.text, item.metadata or None, source, item.row)
 
-        result = self.pipeline.ingest(documents(), total=total, progress=ctx.progress)
+        result = self.pipeline.ingest(documents(), total=total, progress=ctx.progress, track_ids=run_analysis)
         report = result.as_report(include_documents=False)
         report["rows"] = total
         report["failed"] += tally["skipped"]
@@ -262,8 +268,13 @@ class Container:
 
         if rebuild:
             report["rebuild"] = self._rebuild(ctx, None, None)
-        if run_cluster and (result.touched_ids or rebuild):
+        if run_cluster and (result.touched_ids or rebuild or run_analysis):
             report["clustering"] = self._cluster(ctx, None, None, min_community_size)
+        if run_analysis:
+            ctx.check_cancelled()
+            analysis = self.analysis.submit(AnalysisRequest(time_range="all"), trigger="import", document_ids=result.accepted_ids, source=source)
+            report["analysis_job_id"] = analysis.id
+            report["analysis_id"] = analysis.params["analysis_id"]
         report["total_ms"] = int((time.perf_counter() - started) * 1000)
         return report
 

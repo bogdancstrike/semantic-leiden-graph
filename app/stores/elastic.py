@@ -833,11 +833,23 @@ class ElasticStore:
         )
         return sum(1 for item in response["items"] if item.get("delete", {}).get("result") == "deleted")
 
-    def iter_analysis_documents(self, start: str, end: str) -> Iterable[dict]:
+    def topic_documents(self, ids: list[str], query: str, size: int) -> dict:
+        response = self.client.search(
+            index=self.alias,
+            query={"bool": {"filter": [{"ids": {"values": ids}}], "must": [lexical_query(query, LexicalOptions()) if query else {"match_all": {}}]}},
+            size=size, track_total_hits=True, source_includes=DISPLAY_FIELDS,
+            sort=[{"_score": "desc"}, {"external_id": "asc"}],
+        )
+        return {"total": response["hits"]["total"]["value"], "documents": [{"id": hit["_id"], **hit["_source"], "score": hit["_score"] or 0} for hit in response["hits"]["hits"]]}
+
+    def iter_analysis_documents(self, start: str | None, end: str) -> Iterable[dict]:
         """Scroll snapshot: filter by content update time before centrality ranking."""
+        window = {"lt": end}
+        if start is not None:
+            window["gte"] = start
         for hit in scan(
             self.client, index=self.alias, size=1000,
-            query={"query": {"range": {"updated_at": {"gte": start, "lt": end}}}, "_source": DISPLAY_FIELDS},
+            query={"query": {"range": {"updated_at": window}}, "_source": DISPLAY_FIELDS},
         ):
             yield {"id": hit["_id"], **hit["_source"]}
 

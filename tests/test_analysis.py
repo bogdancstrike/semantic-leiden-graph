@@ -14,6 +14,10 @@ CONTENT = {
     "key_findings": ["Funding increased"],
     "uncertainties": ["Only two samples"],
     "evidence_ids": ["a"],
+    "narratives": ["Infrastructure investment improves access"],
+    "sentiment": "positive",
+    "sentiment_reasoning": "The reporting describes expanded access.",
+    "classifications": ["transport", "infrastructure"],
 }
 EVIDENCE = {"documents": [{"id": "a", "text": "Railway stations receive funding."}]}
 
@@ -164,3 +168,48 @@ def test_reports_and_schedule_survive_restart(tmp_path):
     assert store.list()["total"] == 2
     assert store.due() == "2026-10-18T10:00:00+00:00"
     store.close()
+
+
+@pytest.mark.parametrize("provider", ["gemini", "openai"])
+@pytest.mark.parametrize("status", [401, 403, 429, 503])
+def test_multiple_keys_fail_over_and_remember_working_key(provider, status):
+    used = []
+
+    def handler(request):
+        key = request.headers.get("X-goog-api-key") or request.headers[
+            "Authorization"
+        ].removeprefix("Bearer ")
+        used.append(key)
+        return httpx.Response(
+            status if key == "first-private" else 200, json=response_for(provider)
+        )
+
+    llm = LLMClient(
+        make_settings(
+            llm_provider=provider,
+            **{f"{provider}_api_key": "first-private, second-private"},
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+    assert llm.analyze(EVIDENCE) == CONTENT
+    assert used == ["first-private", "second-private"]
+    llm.analyze(EVIDENCE)
+    assert used[-1] == "second-private"
+
+
+def test_all_rejected_keys_fail_without_leaking_them():
+    used = []
+
+    def handler(request):
+        used.append(request.headers["X-goog-api-key"])
+        return httpx.Response(403, text="first-private second-private")
+
+    llm = LLMClient(
+        make_settings(gemini_api_key="first-private,second-private"),
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(DependencyUnavailable) as error:
+        llm.analyze(EVIDENCE)
+    assert len(used) == 2
+    assert "private" not in str(error.value)

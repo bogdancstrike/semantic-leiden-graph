@@ -23,6 +23,90 @@ class AnalysisStore:
             self._db.execute(
                 "CREATE TABLE IF NOT EXISTS schedule (id INTEGER PRIMARY KEY CHECK(id=1), due TEXT NOT NULL)"
             )
+            self._db.execute(
+                "CREATE TABLE IF NOT EXISTS members (run_id TEXT, cid INTEGER, doc_id TEXT, PRIMARY KEY(run_id, cid, doc_id))"
+            )
+
+    def add_members(self, run_id, rows):
+        with self._lock, self._db:
+            self._db.executemany(
+                "INSERT OR IGNORE INTO members VALUES (?, ?, ?)",
+                ((run_id, cid, doc_id) for cid, doc_id in rows),
+            )
+
+    def member_ids(self, run_id, cid, offset=0, limit=1000):
+        with self._lock:
+            return [
+                r[0]
+                for r in self._db.execute(
+                    "SELECT doc_id FROM members WHERE run_id=? AND cid=? ORDER BY doc_id LIMIT ? OFFSET ?",
+                    (run_id, cid, limit, offset),
+                )
+            ]
+
+    def topics(
+        self,
+        *,
+        query="",
+        sentiment=None,
+        run_id=None,
+        document_id=None,
+        limit=24,
+        offset=0,
+    ):
+        with self._lock:
+            memberships = (
+                set(
+                    self._db.execute(
+                        "SELECT run_id, cid FROM members WHERE doc_id=?", (document_id,)
+                    )
+                )
+                if document_id
+                else None
+            )
+            rows = self._db.execute(
+                "SELECT body FROM runs WHERE (? IS NULL OR id=?) ORDER BY created_at DESC",
+                (run_id, run_id),
+            ).fetchall()
+        topics = []
+        for row in rows:
+            run = json.loads(row[0])
+            for community in run.get("communities", []):
+                if (
+                    memberships is not None
+                    and (run["id"], community["community_id"]) not in memberships
+                    and document_id not in {d["id"] for d in community["documents"]}
+                ):
+                    continue
+                analysis = community.get("analysis", {})
+                if sentiment and analysis.get("sentiment", "unclear") != sentiment:
+                    continue
+                if (
+                    query
+                    and query.casefold()
+                    not in json.dumps(analysis, ensure_ascii=False).casefold()
+                ):
+                    continue
+                topics.append(
+                    {
+                        "id": f"{run['id']}:{community['community_id']}",
+                        "run_id": run["id"],
+                        "created_at": run["created_at"],
+                        "window_start": run["window_start"],
+                        "window_end": run["window_end"],
+                        "provider": run["provider"],
+                        "model": run["model"],
+                        "community_version": run.get("community_version"),
+                        "community_id": community["community_id"],
+                        "status": community["status"],
+                        "document_count": community["document_count"],
+                        "selected_documents": len(community["documents"]),
+                        "analysis": analysis,
+                        "error": community.get("error"),
+                        "scope": run.get("scope"),
+                    }
+                )
+        return {"topics": topics[offset : offset + limit], "total": len(topics)}
 
     def save(self, run: dict) -> None:
         with self._lock, self._db:

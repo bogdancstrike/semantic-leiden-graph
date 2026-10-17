@@ -72,7 +72,8 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=90, gt=0, le=600)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
     llm_max_output_tokens: int = Field(default=4096, ge=256, le=32768)
-    analysis_top_k: int = Field(default=5, ge=1, le=50)
+    llm_context_tokens: int | None = Field(default=None, ge=1024, le=10_000_000)
+    llm_token_safety_margin: int = Field(default=1024, ge=0, le=32768)
     analysis_max_communities: int = Field(default=100, ge=1, le=1000)
     analysis_document_chars: int = Field(default=4000, ge=100, le=20000)
     analysis_schedule_enabled: bool = True
@@ -113,6 +114,11 @@ class Settings(BaseSettings):
     @field_validator("es_password", "es_api_key", "qdrant_api_key", "api_key", "gemini_api_key", "openai_api_key", mode="before")
     @classmethod
     def _empty_secret_is_none(cls, value):
+        return None if value in ("", None) else value
+
+    @field_validator("llm_context_tokens", mode="before")
+    @classmethod
+    def _empty_context_is_none(cls, value):
         return None if value in ("", None) else value
 
     @property
