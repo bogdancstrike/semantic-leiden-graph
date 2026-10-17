@@ -1,4 +1,4 @@
-# Semantic Leiden — Specification (v0.4.0)
+# Semantic Leiden — Specification (v0.4 + topic intelligence)
 
 This is the **specification** of the system: what it does, the exact contracts, the limits, how to
 reuse the Nucleus template, how it is built (architecture, §14–§30), how to operate it, the build
@@ -6,12 +6,18 @@ plan and the acceptance checklist. Together with [ui.md](ui.md) it is meant to b
 engineer (or an AI agent) to rebuild the system from scratch and end up with the same behaviour,
 API and look.
 
+Updated 2026-10-17: [§31](#31-implemented-topic-intelligence-and-analysis) specifies the implemented
+Topics workspace, LLM analysis, automatic context sizing, scheduling, CSV/graph integration,
+entities, trends, deletion and filters. The sections below include the original v0.4 baseline.
+
 | Document | Answers |
 |---|---|
 | **`docs/specs.md`** (this file) | What it must do and how it is built: requirements, API contracts, limits, Nucleus reuse, operations, plan, acceptance tests, architecture |
 | [`docs/ui.md`](ui.md) | How it looks and behaves: shell, pages, routes, layouts, components, states, copy |
 
-**Diagrams** (`docs/diagrams/`, each as PNG and SVG):
+**Diagrams** (`docs/diagrams/`, each as PNG and SVG) illustrate the original corpus pipeline.
+The SQLite analysis store and external provider extension are described in §31.
+
 
 | # | Diagram | Section |
 |---|---|---|
@@ -26,9 +32,7 @@ API and look.
 `FR-<area>-nn` (functional), `API-nn` (endpoints), `NFR-nn` (non-functional), `NUC-nn`
 (template reuse), `M<n>` (milestones), `AT-nn` (acceptance tests), `ADR-nnn` (decisions). Numbers in
 `code` are the values the current build ships with; when a value is configurable the environment
-variable is named. Paths are relative to the project root
-`/home/user/workspace/tests/semantic-leiden-poc-v0.3/semantic-leiden-poc` unless stated. Where this
-document and the code disagree, the code wins and the document should be corrected.
+variable is named. Paths are relative to the project root unless stated. Where this document and the code disagree, the code wins and the document should be corrected.
 
 The UI template is the **Nucleus dashboard platform template** at
 **`/home/user/workspace/templates/nucleus-dashboard-platform-template`** (its React app is in
@@ -75,6 +79,7 @@ The UI template is the **Nucleus dashboard platform template** at
 28. [Key decisions](#28-key-decisions) — ADRs
 29. [From PoC to production](#29-from-poc-to-production)
 30. [References](#30-references)
+31. [Implemented topic intelligence and analysis](#31-implemented-topic-intelligence-and-analysis)
 - [Appendix A — Client examples](#appendix-a--client-examples)
 
 ---
@@ -112,8 +117,8 @@ flowchart LR
    least `min_similarity` (the **graph policy**). The edges form a weighted, undirected graph.
 3. Weighted Leiden partitions that graph; each group of at least `min_community_size`
    documents (never less than 2) becomes a **community** with a dense integer id.
-4. Search, filters, dashboards and the graph view all read those communities; nothing else
-   (no labels, keywords, LLM summaries, enrichment) is derived from the text.
+4. Search, filters, dashboards and the graph view all read those communities;
+   optional post-discovery LLM reports interpret central evidence in the Topics workspace (§31).
 
 ### 1.3 Personas
 
@@ -140,7 +145,8 @@ flowchart LR
 - Graph visualisation (top edges, communities, 1–2 hop neighbourhood, search-seeded subgraph).
 - Community metrics (size, internal/boundary edges, cohesion, density, conductance), detail.
 - Background jobs: import, cluster, rebuild, reconcile, delete-source; progress, cancel.
-- Web UI in the Nucleus style: dashboard, explore, graph, communities, import, operations.
+- Web UI in the Nucleus style: dashboard, Topics/dossiers, explore, graph, communities, import, operations.
+- Optional Gemini/OpenAI topic intelligence, automatic evidence sizing, daily and on-demand reports, cited NER, narratives, sentiment, classifications and comparable-period trends (§31).
 - Optional API key for writes, CORS, security headers, WCAG 2.1 AA.
 
 ### 1.5 Non-goals
@@ -148,11 +154,11 @@ flowchart LR
 | Not in scope | Reason / what to do instead |
 |---|---|
 | User accounts, roles, SSO (Keycloak), impersonation | One optional shared `API_KEY` protects writes; reads are open. Put an authenticating proxy in front for multi-user deployments. |
-| Labels, keywords, LLM summaries or any text enrichment of communities | The product idea is "communities from similarity only"; communities are identified by `C<id>` and explored through their central documents. |
+| LLM-driven cluster assignment | Discovery uses similarity and Leiden only; optional post-discovery summaries, narratives and entities are implemented in §31. |
 | Chunking long documents | One document = one vector. Texts longer than `TEXT_MAX_CHARS` (20,000) are rejected or truncated. |
 | Editing a document in the UI | Re-ingest with the same `id`; change detection updates it. |
 | Horizontal scaling of the API or several job workers | One uvicorn process, one job worker thread, a structural lock. See §20 and §29. |
-| Persistent job history | Jobs live in memory (last 50). Cluster runs are persisted in Neo4j. |
+| Persistent general job history | Jobs live in memory (last 50). Cluster runs persist in Neo4j; analysis reports, membership and schedule persist separately in SQLite (§31). |
 | Incremental Leiden | Every clustering is a full run over the whole graph; new documents stay "unclustered" until the next run. |
 | Live push (websockets, SSE) | The UI polls jobs every second while one runs. |
 | Internationalised UI | English UI; documents may be in any language. |
@@ -190,7 +196,7 @@ flowchart LR
 
 | Constraint | Consequence |
 |---|---|
-| No enrichment: no labels, no LLM, no entity extraction | Communities are described by structure (size, cohesion, density, conductance) and by their most central documents |
+| Enrichment does not drive discovery | Leiden uses similarity only; optional LLM analysis supplies display titles, narratives, entities, sentiment and classifications after discovery (§31). |
 | Mixed languages (Romanian and English in the seed data) | Multilingual embedding model; ES `asciifolding` sub-field so `cai ferate` matches `căi ferate` |
 | Laptop-sized deployment (docker compose, CPU only) | One API process, CPU torch wheel, in-process job queue, stores bound to 127.0.0.1 |
 | Three stores and no distributed transactions | One authoritative store, a fixed write order, deterministic ids and a reconcile job |
@@ -891,7 +897,7 @@ referrer policy, permissions policy.
 Details, measurements and copy are in [ui.md](ui.md); these are the testable rules.
 
 **FR-UI-01 Shell.** Nucleus-style layout: dark sider (width 248, collapsed 56, collapse state
-persisted), header, full-width content. Sider groups: **Overview** (Dashboard `/`), **Explore**
+persisted), header, full-width content. Sider groups: **Overview** (Dashboard `/`, Topics `/topics`), **Explore**
 (Documents `/documents`, Similarity graph `/graph`, Communities `/communities`), **Data** (Import
 `/import`, Operations `/operations`); a corpus summary at the sider foot. Below `lg` the sider is a
 drawer.
@@ -1415,9 +1421,10 @@ min_similarity, rebuild_ms}`; 409 `busy`. (The `cluster` flag is honoured only b
 | API-31 | POST | `/jobs/rebuild` | key | `{neighbor_k?, min_similarity?, cluster: true}` | 202 `JobOut` (`rebuild`) |
 | API-32 | POST | `/jobs/reconcile` | key | — | 202 `JobOut` (`reconcile`) |
 | API-33 | POST | `/jobs/delete-source` | key | `{source: string \| null, cluster: false}` | 202 `JobOut` (`delete`); 422 `""`; 404 no documents |
+| API-34 | POST | `/jobs/analyze` | key | `AnalysisRequest` (§31.3) | 202 `JobOut` (`analysis`), `params.analysis_id` |
 
 Job results: cluster → `ClusterResult`; rebuild → FR-RB-01; reconcile → FR-REC-01; delete →
-FR-DEL-01; import → FR-ING-14.
+FR-DEL-01; import → FR-ING-14; analysis → saved report ID (§31.3).
 
 ### 5.9 Endpoint inventory
 
@@ -1451,6 +1458,11 @@ FR-DEL-01; import → FR-ING-14.
 | 26 | POST | `/graph/rebuild` | ✓ | ✓ | CLI / v0.2 clients |
 | 27–29 | GET/DELETE | `/jobs`, `/jobs/{id}` | DELETE ✓ | | job pill, Import, Operations |
 | 30–33 | POST | `/jobs/{cluster,rebuild,reconcile,delete-source}` | ✓ | 202 | Operations |
+| 34 | POST | `/jobs/analyze` | ✓ | 202 | Communities, Graph, Topics-linked import |
+| 35 | GET | `/analysis/config` | | | Analysis readiness, provider, schedule |
+| 36–37 | GET | `/analysis/runs`, `/analysis/runs/{id}` | | | Report history and full report |
+| 38–40 | GET | `/analysis/topics`, `/analysis/topics/{id}`, `/analysis/topics/{id}/documents` | | | Topics, dossier, scoped search |
+| 41 | DELETE | `/analysis/topics/{id}` | ✓ | ✓ | Topic deletion (source documents preserved) |
 
 ---
 
@@ -2398,11 +2410,11 @@ All long-running services use `restart: unless-stopped`.
 
 | Layer | Contents | Talks to |
 |---|---|---|
-| L1 HTTP adapters | `routes_system`, `routes_documents`, `routes_search`, `routes_explore`, `routes_graph`, `routes_jobs`, `deps.py` | one `Container` method per route |
+| L1 HTTP adapters | `routes_system`, `routes_documents`, `routes_search`, `routes_explore`, `routes_graph`, `routes_jobs`, `routes_analysis`, `deps.py` | one `Container` method per route |
 | L2 Use cases | `Container` (composition root), `JobManager` (1 worker thread, history 50), structural lock, I/O executor (16 threads) | domain logic and store adapters |
 | L3 Domain logic | `SearchEngine` + `fusion` / `routing` / `mmr`, `conditions` (RAQB tree → ES bool), `IngestionPipeline` + `IdList`, `csv_reader`, `compact_communities` | store adapters |
 | L4 Store adapters | `ElasticStore`, `VectorStore`, `GraphStore`, `Embedder` (sentence-transformers + LRU) | the stores and the model |
-| L5 Stores and model | Elasticsearch, Qdrant, Neo4j + GDS, MiniLM-L12 weights | — |
+| L5 Stores and model | Elasticsearch, Qdrant, Neo4j + GDS, MiniLM-L12 weights; SQLite analysis state and optional external Gemini/OpenAI (§31) | — |
 
 ### 16.1 Module responsibilities
 
@@ -2626,12 +2638,12 @@ exist. A metadata-only update keeps the community; a text change resets it.
 ### 18.6 Jobs (in memory)
 
 ```
-Job {id (uuid4 hex), kind: import|rebuild|cluster|reconcile|delete, params, status: queued|running|succeeded|failed|cancelled,
+Job {id (uuid4 hex), kind: import|rebuild|cluster|reconcile|delete|analysis, params, status: queued|running|succeeded|failed|cancelled,
      phase, processed, total, message, result, error, created_at, started_at, finished_at}
 ```
 
 The last `JOB_HISTORY` (50) finished jobs are kept, plus every queued or running one. They
-are lost on restart; the work itself is idempotent.
+are lost on restart; analysis reports and scheduling persist separately in SQLite (§31).
 
 ### 18.7 Browser storage
 
@@ -2641,6 +2653,7 @@ are lost on restart; the work itself is idempotent.
 | `semantic-leiden.density` | local | `compact` / `middle` / `comfortable` |
 | `semantic-leiden.sidebar.collapsed` | local | boolean |
 | `semantic-leiden.search.recent.<scope>` | local | recent queries per page scope |
+| `semantic-leiden.topics.saved` | local | Saved topic IDs, maximum 100 |
 | `semantic-leiden.saved-searches` | local | `[{id, name, path, search, created_at}]` |
 | `semantic-leiden.search.tuning.v2` | local | ranking defaults (fusion, routing, MMR, lexical) |
 | `semantic-leiden.chart.<id>` | local | chart type choice per chart card |
@@ -2649,6 +2662,13 @@ are lost on restart; the work itself is idempotent.
 | `semantic-leiden.api-key` | **session** | the API key |
 
 ---
+
+### 18.8 Persisted analysis state
+
+SQLite `runs` stores report JSON keyed by ID with creation time, including exact selected evidence,
+LLM output, token budgets and evidence graph. `members` stores `(run_id, cid, doc_id)` membership;
+`schedule` stores the next UTC due time. Compose mounts the `analysis-state` volume. This is
+separate from ephemeral jobs and from community state in the corpus stores; details are in §31.
 
 ## 19. Consistency model
 
@@ -3157,6 +3177,8 @@ for E5, and use a new `QDRANT_COLLECTION` because the dimension changes.
 All settings come from environment variables (case-insensitive) or a `.env` file
 (`app/config.py`). Secrets are `SecretStr`: never logged and never returned by `/config`.
 Compose passes the ones marked **C** with the default shown in `docker-compose.yml`.
+Analysis/provider settings are listed in [§31.4](#314-providers-persistence-and-scheduling)
+and `.env.example`.
 
 ### 23.1 Elasticsearch
 
@@ -3445,7 +3467,9 @@ semantic-leiden-poc/
 │   │   ├── routes_search.py     /search /search/community
 │   │   ├── routes_explore.py    /explore/fields /explore/query /explore/insights /sources
 │   │   ├── routes_graph.py      /graph /graph/query /graph/ego /communities /cluster /graph/rebuild
+│   │   ├── routes_analysis.py   /jobs/analyze /analysis/*
 │   │   └── routes_jobs.py       /jobs*
+│   ├── analysis/                llm.py budget.py candidates.py service.py store.py scheduler.py trends.py
 │   ├── search/                  engine.py fusion.py routing.py mmr.py conditions.py
 │   ├── pipeline/                ingest.py csv_reader.py jobs.py communities.py
 │   └── stores/                  elastic.py vectors.py graph.py
@@ -3488,7 +3512,7 @@ Context, decision, alternatives and consequences in brief. v0.4 adds the last fi
 | ADR-004 | Reconcile instead of distributed transactions | Simple and correct at PoC scale; outbox in production |
 | ADR-005 | OCC full-document writes | Partial updates deep-merged metadata and lost races |
 | ADR-006 | In-process single-worker job manager | Zero infrastructure; forces one API process |
-| ADR-007 | Graph-only community description, no labels | The no-enrichment constraint |
+| ADR-007 | Similarity-only discovery, post-discovery interpretation | LLM analysis supplies display information without changing clustering (§31) |
 | ADR-008 | Minimal Qdrant payload; only `community_id` duplicated | Community filters inside HNSW keep recall |
 | ADR-009 | Build HNSW early and wait before linking | Linking was O(n²) on brute force |
 | ADR-010 | Canvas + d3-force graph | SVG degraded past ~1000 elements |
@@ -3541,9 +3565,9 @@ structural lock, cooperative cancellation. *Rejected for the PoC*: Celery/Arq/RQ
 Kafka workers (needed for more than one API replica). *Consequence*: zero extra
 infrastructure; one API process; job history lost on restart (the work is idempotent).
 
-**ADR-007 Graph-only community description, no labels.** Keeps the no-enrichment
-constraint; communities are described by structure and representative documents. c-TF-IDF or
-LLM labels are a display-only extension (§29).
+**ADR-007 Similarity-only discovery, post-discovery interpretation.** Communities are
+discovered from graph structure and representative documents. Optional LLM interpretation
+is implemented separately (§31), with saved evidence and versioned membership.
 
 **ADR-008 Minimal Qdrant payload.** No text in Qdrant; only `community_id` is duplicated
 because community-scoped ANN must filter inside the HNSW traversal — post-filtering the top-k
@@ -3634,7 +3658,7 @@ UI → API gateway (OIDC) → search/query API (N stateless replicas) → ES · 
 | Product gap | Recommendation |
 |---|---|
 | Long documents truncated by the model window | chunk into passages (200–300 tokens, overlap 30), embed passages, link and cluster at document level by max or mean passage similarity |
-| Communities have no names | display-only c-TF-IDF labels from ES `significant_text` per community; optional LLM summary of central documents (clustering stays enrichment-free) |
+| Further topic naming | LLM titles are implemented (§31); c-TF-IDF labels remain a possible offline alternative. |
 | Community ids change every run | community lineage: match runs by Jaccard overlap of members (Hungarian assignment), keep a stable `topic_id`, show splits and merges |
 | Incremental k-NN drift | nightly rebuild, or a bounded re-link of the neighbours of changed documents |
 | Streaming corpora | time-windowed graphs (for example the last 7 days) plus lineage |
@@ -3663,6 +3687,146 @@ UI → API gateway (OIDC) → search/query API (N stateless replicas) → ES · 
 - Ant Design 5: theme tokens, `cssVar`, component tokens.
 
 ---
+
+## 31. Implemented topic intelligence and analysis
+
+This section describes the implemented extensions as of 2026-10-17. The baseline search,
+ingestion and graph contracts in the earlier sections still apply. Discovery remains weighted
+Leiden over similarity edges; optional LLM analysis interprets a saved community after discovery.
+Generated titles, entities and classifications never change cluster assignments or retrieval scores.
+
+### 31.1 Analyst workflows
+
+| Entry point | Result |
+|---|---|
+| Communities → Analyze now | Discover communities, select a period and analyze the eligible documents in each community. |
+| Import → Run AI analysis after import | Cluster after the import and queue analysis of exactly its successful/unchanged document IDs. Previously imported rows absent from this file are excluded. |
+| Graph → detected community → analyze | Capture the selected communities' document IDs before reclustering; queue a linked Topics report. |
+| Topics → topic dossier | Inspect narratives, findings, cited named entities, sentiment, classifications, trends, saved graph and LLM activity; search full saved membership. |
+| Document drawer → Related topics | Find saved topic analyses containing that document, even after reclustering. |
+| Daily scheduler | Analyze the preceding 24 hours every 24 hours, independently of manual runs. |
+
+A topic has a stable report-scoped ID `<run_id>:<community_id>`. Community IDs alone are
+version-dependent and must not join historical reports to today's clustering. Full membership,
+selected evidence and a graph snapshot are persisted; topic document search reads current ES
+content through saved IDs. Deleted/edited source documents can therefore differ from the saved
+LLM evidence. Older reports fall back to selected evidence when full membership was not recorded.
+
+### 31.2 Evidence selection and LLM output
+
+`POST /jobs/analyze` first refreshes weighted Leiden using the active policy and minimum size.
+Period eligibility uses content `updated_at`, inclusive start and exclusive end in UTC;
+publication dates in metadata are not used. Relative windows default to 24 hours, custom
+windows require timezone-aware start/end timestamps, and `all` has no lower bound. Imported
+analysis uses the exact accepted IDs, including unchanged reimports. Unassigned documents are
+counted but do not become topics. At most 100 communities are analyzed by default, largest first;
+reports record skipped communities explicitly.
+
+Within each community, evidence is ranked by weighted internal degree, breaking ties by document
+ID. Automatic selection keeps the largest ranked prefix fitting the prompt budget, without a
+50-document cap. Candidate records are staged in temporary SQLite to avoid holding the whole
+corpus in memory. Gemini model metadata supplies context/output limits and `countTokens` measures
+the exact instructions and evidence. OpenAI uses tiktoken; the default `gpt-4.1-mini` context is
+known, and other models require `LLM_CONTEXT_TOKENS`. Reserve the configured response tokens
+(default 8,192, bounded by provider limits) and 1,024 safety tokens. Each document initially has a
+4,000-character excerpt cap. If the first document alone is oversized, take its longest fitting
+excerpt. Persist the exact excerpts, truncation flags, input count and token budget. Legacy API
+`top_k` (1–50) remains an optional explicit cap; the UI always uses automatic sizing.
+
+Structured output includes `title`, `summary`, `key_findings`, `uncertainties`, `evidence_ids`,
+`narratives`, `sentiment`, `sentiment_reasoning`, `classifications`, and `entities`. Entities have
+`name`, `label` (`PERSON`, `ORG`, `LOCATION`, `EVENT`, `PRODUCT`, `OTHER`) and 1–5 supporting
+evidence IDs. Both overall and entity citations must refer to documents actually sent. Narratives
+are reported framing/claims, and sentiment describes the reporting. Document text is untrusted
+input; provider instructions prohibit following embedded commands or inventing facts. Schema and
+citation validation detect malformed output, but generated interpretations still require review.
+
+Trend signals are computed from document proportions rather than invented by the LLM. Compare
+only equal-duration (within 60 seconds), non-overlapping periods with the same embedding model
+and scope, with at most one period's gap. Match normalized centroids of up to 20 central document
+vectors using cosine similarity ≥0.82 and one-to-one matching. A share ratio ≥1.25 is rising
+(current count ≥3); ≤0.8 is falling (previous count ≥3); otherwise stable. All-time/import reports,
+missing baselines and unmatched topics show `unavailable`. These measure changes in recently
+updated document volume, not verified internet popularity or publication-time trends.
+
+### 31.3 API contracts
+
+| Method and path | Contract |
+|---|---|
+| `POST /jobs/analyze` | Optional body: `time_range=relative|custom|all`, `lookback_hours` (1–8760, default 24), custom `window_start`/`window_end`, `max_communities`, optional legacy `top_k`, optional `community_ids`. Returns 202 `JobOut` with `params.analysis_id`. |
+| `GET /analysis/config` | Provider/model, readiness, automatic selection policy, configured context cap, response reserve and schedule. Never includes credentials. |
+| `GET /analysis/runs` | History summaries, `limit` 1–100 (default 20), `offset` ≥0. Evidence bodies excluded. |
+| `GET /analysis/runs/{id}` | Full saved report, including successful/failed topic results, evidence and graph snapshots. |
+| `GET /analysis/topics` | Paginated topic summaries and aggregate stats. `q` searches structured analysis (including entities/narratives); filters: `sentiment`, exact `classification`, `trend`, `run_id`, `document_id`, repeated `topic_ids`, `created_after`, `created_before`; sorts `recent`, `documents`, `coverage`. Creation bounds are inclusive/exclusive and filter report creation time, separate from its document period. Default page 24, maximum 100. |
+| `GET /analysis/topics/{id}` | Saved community plus report metadata, instructions and evidence budget. |
+| `GET /analysis/topics/{id}/documents` | Keyword search (`q`) within saved membership; exact total, `limit` 1–100, `offset` 0–1000, `membership_available` flag. |
+| `DELETE /analysis/topics/{id}` | Remove this saved topic and its membership, update report counts. Keep source documents, vectors and graph nodes. Running/queued reports return 409; absent topics 404. |
+| `POST /documents/upload` | Additional multipart `run_analysis` boolean (default false). Provider configuration is checked before import; enabling analysis ensures clustering. Result includes `analysis_job_id` and `analysis_id`. |
+
+All mutating endpoints use the existing optional `X-API-Key` authentication. Missing provider
+configuration returns 503; duplicate active manual analysis returns 409. Each import may queue
+its own linked analysis. Existing job progress/cancellation endpoints apply. Provider failures
+preserve successful communities in partial reports. Empty periods finish without generation.
+
+### 31.4 Providers, persistence and scheduling
+
+| Setting | Default / behavior |
+|---|---|
+| `LLM_PROVIDER` | `gemini`; alternatively `openai`. |
+| `GEMINI_API_KEY`, `OPENAI_API_KEY` | Comma-separated server-only keys; whitespace/duplicate keys removed. |
+| `GEMINI_MODEL` | `gemini-flash-latest`, REST `generateContent`, `X-goog-api-key`. |
+| `OPENAI_MODEL` | `gpt-4.1-mini`, Responses API with `store=false`. |
+| `LLM_CONTEXT_TOKENS` | Optional smaller cap for Gemini/default OpenAI; required for other OpenAI models. |
+| `LLM_MAX_OUTPUT_TOKENS`, `LLM_TOKEN_SAFETY_MARGIN` | 8192 / 1024. |
+| `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES` | 90 seconds / 2 additional attempts beyond trying configured keys. |
+| `ANALYSIS_MAX_COMMUNITIES`, `ANALYSIS_DOCUMENT_CHARS` | 100 / 4000. |
+| `ANALYSIS_SCHEDULE_ENABLED`, `ANALYSIS_INTERVAL_HOURS` | true / 24; enabled only with configured provider keys. |
+| `ANALYSIS_DB_PATH` | `.state/analysis.sqlite3` locally; `/app/state/analysis.sqlite3` on Compose `analysis-state` volume. |
+
+Authentication rejection, rate limits, selected transient HTTP/server errors and connection
+failures rotate keys; the latest working key is preferred for subsequent calls. Errors do not
+include raw provider responses or keys. Secrets remain in ignored `.env`; the UI's shared API key
+is separate. Selected evidence is sent to the configured external provider.
+
+SQLite holds report JSON, membership IDs and the next UTC due time. Back it up alongside the
+three corpus stores. The scheduler checks every 30 seconds, waits while background jobs are
+active, and sets the first due time one interval after setup. Manual jobs do not reset it.
+After downtime, one overdue run covers the preceding 24 hours; missed windows are not replayed.
+Interrupted reports become failed on startup with snapshots retained. Cancellation takes effect
+between steps or after a pending provider request. One API process/job worker remains required;
+there is no multi-replica scheduler, automatic retention or persistent general job queue.
+
+### 31.5 Entity investigation statistics
+
+Each topic detail includes `community.entity_statistics`, derived from the exact analyzed evidence,
+separate from raw LLM output. Existing reports with entity extraction receive computed statistics
+on read; new reports persist them after generation. Each entity includes `mention_count`,
+`document_count`, `document_share_percent`, source-label document/mention counts, first/latest
+content-update timestamps, a UTC daily timeline, up to three contextual examples and up to eight
+co-occurring entities ranked by shared-document count. Summary totals show appearances,
+documents containing an extracted entity, evidence document count and type distribution.
+
+Matches normalize Unicode to NFC, ignore case, allow whitespace variation and require whole-name
+boundaries. They count repeated appearances within a document; partial-word matches are excluded.
+Aliases are not merged. Counts cover saved excerpts only, and truncated/unselected text is excluded.
+Dates refer to document `updated_at`, not publication or the first real-world appearance. Shared
+documents indicate co-occurrence, not a verified relationship. Zero exact-name matches remain
+visible with a review hint and the original LLM citations. Source labels can represent import files,
+not independent publishers. Changes to current ES documents do not change these historical counts.
+
+### 31.6 Verification and source map
+
+- Backend: `app/analysis/{llm,budget,candidates,service,store,scheduler,trends,entities}.py`,
+  `app/api/routes_analysis.py`, ingestion tracking in `app/pipeline/ingest.py`.
+- Frontend: `TopicsPage`, `TopicDetailPage`, `AnalysisPanel`, `CommunityNavigator`,
+  `GraphAnalysisActions`, `TopicDeleteButton`, `useSavedTopics` and shared `GraphCanvas`.
+- Regression suites: `tests/test_analysis*.py` cover HTTP adapters, key failover/redaction,
+  context packing, periods, import scope, membership, filters/deletion, trends, persistence,
+  cancellation and scheduling; `frontend/e2e/analysis.spec.ts` covers integrated UI flows.
+- Run `pytest -q`, frontend `npm test`, `npm run build`, `npm run test:e2e` and the live UI
+  `BASE=http://localhost:3000 npm run audit:a11y`. The opt-in real-provider smoke test is
+  documented in the README; it creates a report using existing corpus data.
+
 
 ## Appendix A — Client examples
 

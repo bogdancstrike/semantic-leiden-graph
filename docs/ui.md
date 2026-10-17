@@ -1,4 +1,4 @@
-# UI specification — Semantic Leiden Explorer (v0.4)
+# UI specification — Semantic Leiden Explorer (v0.4 + topic intelligence)
 
 This document is the complete **visual and interaction specification** of the frontend in
 `frontend/src`. Together with [specs.md](specs.md) it is meant to be enough to rebuild the system
@@ -9,7 +9,8 @@ from nothing:
 | [specs.md](specs.md) | use cases, functional requirements, the API contract (§5), search (§6) and CSV import (§7) specifications, non-functional requirements, **what to copy from Nucleus and how to adapt it (§9)**, operations (§10), tests and acceptance checklist, and the architecture — services, stores (Elasticsearch, Qdrant, Neo4j/GDS), pipelines, jobs, data model, flows (§14–§30) |
 | **ui.md** (this file) | design system, shell, routes and URL state, shared components, every page, interaction patterns, accessibility, responsive rules, performance, storage and UI security, rebuild checklist |
 
-Every value, string and threshold below was read from the v0.4.0 code. Copy in `"quotes"` or
+The baseline values below were read from v0.4.0; [§13](#13-topics-workspace-and-integrated-analysis)
+documents the implemented Topics, analysis and graph extensions as of 2026-10-17. Copy in `"quotes"` or
 code spans is the exact text the UI shows. Where the code itself is inconsistent, §12.3 says
 so rather than papering over it.
 
@@ -27,6 +28,7 @@ so rather than papering over it.
 10. [Performance](#10-performance)
 11. [Storage keys and UI security](#11-storage-keys-and-ui-security)
 12. [Rebuild checklist](#12-rebuild-checklist)
+13. [Topics workspace and integrated analysis](#13-topics-workspace-and-integrated-analysis)
 
 ---
 
@@ -34,11 +36,12 @@ so rather than papering over it.
 
 ### 1.1 What the UI is
 
-A single-page application with **six pages** inside one **app shell**:
+A single-page application with **seven navigation pages plus topic dossiers** inside one **app shell**:
 
 | Group | Page | Path | One-line job |
 |---|---|---|---|
 | Overview | Dashboard | `/` | Corpus health at a glance; every number drills into the view behind it |
+| Overview | Topics | `/topics`, `/topics/:id` | Daily topic briefing and investigation dossiers (§13) |
 | Explore | Explore documents | `/documents` | Browse (exact Elasticsearch filter) or rank (keyword / semantic / hybrid) documents, narrowed by RAQB conditions |
 | Explore | Similarity graph | `/graph` | Draw part of the kNN similarity graph (four sources), highlight nodes with in-browser conditions |
 | Explore | Communities | `/communities` | Leiden communities with quality metrics; topic search and metric conditions |
@@ -54,7 +57,7 @@ Cross-cutting rules that every page follows:
   Back/Forward work (§4).
 - **One visual key per community.** A rotated-square glyph in a stable hashed colour, the same
   in tables, charts, chips and graph nodes (§2.2.9).
-- **Every page ends with a documentation footer** — What / Flow / Tech / Why / How, three to
+- **The original six pages end with a documentation footer** — What / Flow / Tech / Why / How, three to
   five words each, the full sentence on hover (§5.2).
 - **WCAG 2.1 AA** in both themes, verified with axe-core (§8).
 
@@ -645,6 +648,7 @@ flex column with `min-height: 100%` so the page footer sits at the bottom of sho
   | Group | Item label | Path | Breadcrumb / document title |
   |---|---|---|---|
   | OVERVIEW | Dashboard | `/` | Dashboard |
+  | OVERVIEW | Topics | `/topics` | Topics |
   | EXPLORE | Documents | `/documents` | Explore documents |
   | EXPLORE | Similarity graph | `/graph` | Similarity graph |
   | EXPLORE | Communities | `/communities` | Communities |
@@ -743,6 +747,9 @@ stored), "Close", "Save". Toasts: "API key saved for this tab" / "API key cleare
 | Path | Element | Chunk |
 |---|---|---|
 | `/` (index) | `Home` → legacy redirect or `OverviewPage` | `OverviewPage` |
+| `/topics` | `TopicsPage` | `TopicsPage` |
+| `/topics/:id` | `TopicDetailPage` | `TopicDetailPage` |
+| `/summaries` | `<Navigate to="/topics" replace/>` | — |
 | `/documents` | `ExplorePage` | `ExplorePage` |
 | `/explore` | `<Navigate to="/documents" replace/>` | — |
 | `/search` | `<Navigate to="/documents" replace/>` | — |
@@ -752,7 +759,7 @@ stored), "Close", "Save". Toasts: "API key saved for this tab" / "API key cleare
 | `/operations` | `OperationsPage` | `OperationsPage` |
 | `*` | `NotFound` | — |
 
-All six pages are `React.lazy` imports. After first paint the app warms the two likeliest next
+All page components are `React.lazy` imports. After first paint the app warms the two likeliest next
 chunks, `ExplorePage` and `GraphPage`, in `requestIdleCallback` (fallback `setTimeout` 1500 ms).
 
 ### 4.2 Legacy redirects
@@ -2351,6 +2358,7 @@ write is wrapped in `try/catch`; with storage disabled the app works with defaul
 | `semantic-leiden.density` | local | `compact` \| `middle` \| `comfortable` | `middle` |
 | `semantic-leiden.sidebar.collapsed` | local | `'true'` \| `'false'` | `false` |
 | `semantic-leiden.search.recent.<scope>` | local | JSON string[] (scopes `explore`, `graph`, `communities`) | 10 terms, ≥ 2 chars |
+| `semantic-leiden.topics.saved` | local | JSON topic IDs for the Saved collection | 100 IDs |
 | `semantic-leiden.saved-searches` | local | JSON `[{id, name, path, search, summary, created_at}]` | 100 entries |
 | `semantic-leiden.search.tuning.v2` | local | JSON `SearchTuning` (merged over `DEFAULT_TUNING`) | defaults §5.14 |
 | `semantic-leiden.chart.<id>` | local | `chart` \| `table` | `chart` |
@@ -2493,3 +2501,122 @@ Reproduce these knowingly or fix them in the rebuild (fixing is recommended):
     unused; the CSS uses its own breakpoints (767, 900, 991, 1100, 1200, 1300, 1800).
 11. **Minor copy drift.** The Communities footer says "narrow by metrics under Advanced" but the button
     is labelled "Metric conditions"; JetBrains Mono is named in the font stack but not bundled.
+
+
+## 13. Topics workspace and integrated analysis
+
+Updated 2026-10-17. These implemented pages and controls extend the v0.4 baseline above.
+They use the same shell, theme tokens, typography and document drawer as the rest of the app.
+
+### 13.1 Navigation and analyst flow
+
+**Topics** sits in the Overview group beside Dashboard. `/topics` opens the daily briefing;
+`/topics/:id` opens a saved topic dossier; `/summaries` redirects to `/topics`. A topic ID encodes
+report and community (`<run_id>:<community_id>`), and the route URL encodes the colon. Community
+numbers are shown as compact provenance alongside the clustering version, with descriptive
+LLM titles taking priority. Browser Back and the dossier's Back to Topics link preserve filters.
+
+| Starting point | Integrated destination |
+|---|---|
+| Import result → Open imported Topics | `/topics?run=<analysis_id>` with the linked job and report. |
+| Graph community → analysis | Capture its membership, submit analysis, open its report in Topics. |
+| Community detail → analysis | Submit the chosen membership and open the resulting report. |
+| Document drawer → Related topics | `/topics?document=<internal_id>`; closes the drawer. |
+| Dossier → live connections | `/graph?view=focus&focus=<document_id>` for a supporting document. |
+| Dossier classification | Topics filtered to that exact classification. |
+| Dossier named entity | Search current documents within the saved topic membership. |
+
+### 13.2 Topics overview — `/topics`
+
+The briefing opens with a restrained editorial kicker, today's date and update status, followed
+by the title, Refresh and Analyze data actions. A slim stats band shows analyzed topics,
+narratives, distinct named entities and rising topics across the filtered result set. A card grid
+uses a larger first card, readable titles and narrative excerpts, with compact sentiment/trend,
+entity and classification markers. Each card shows eligible/selected document counts, report
+creation age, document period and version provenance, plus Investigate, Save and Delete actions.
+Empty, loading, running-job and error states are explicit.
+
+| Control | Behavior / URL state |
+|---|---|
+| Text search | Searches saved titles, summaries, narratives, entities and other structured analysis; `q`, debounced 250 ms. |
+| All topics / Rising / Saved | `view`; Rising requires a computed rising trend; Saved uses local topic bookmarks. |
+| Sentiment | `sentiment`: positive, negative, neutral, mixed or unclear. |
+| Classification | `class`; exact classification; clicking a card label applies it. Options come from visible results. |
+| Analyzed during | `period`: all, last 24h, last 7 days, custom date/time; custom uses ISO `after`/`before`. Filters **analysis creation time**, independently of the report's document period. |
+| Sort | `sort`: newest (`recent`), largest community (`documents`), highest evidence coverage (`coverage`). |
+| Report | `run`; choose a saved report or all reports. |
+| Related document | `document`; removable contextual filter originating in the document drawer. |
+
+Pagination is 24 topics per page. Poll every 15 seconds, or every 2 seconds while the matching
+analysis job runs; show its `JobProgress`. Bookmarks persist in `semantic-leiden.topics.saved`
+(localStorage, at most 100 IDs) and synchronize across tabs. Saving does not change backend data.
+Deletion uses confirmation, removes the saved community analysis/membership and refreshes
+report/topic queries. Source documents stay available. Queued/running reports cannot be deleted.
+
+### 13.3 Topic dossier — `/topics/:id`
+
+Use a main reading column and a compact sticky evidence sidebar, stacking on small screens.
+The header offers Save, Export briefing (Markdown) and Delete. The sidebar shows evidence
+coverage, input/response tokens, reporting sentiment with reasoning, computed trend with its
+baseline link, classifications and source counts from selected evidence. Counts clearly distinguish
+eligible documents from the excerpts actually sent to the model. Missing historical fields show
+that they were not recorded; do not manufacture entities or trends.
+
+| Tab | Contents and interactions |
+|---|---|
+| Briefing | Summary, key developments, attributed narratives, named entity shortcuts, limitations, and collapsible exact evidence (20 documents per page). Evidence badges identify citations and excerpts; document buttons open the shared drawer. |
+| Named entities | Sortable NER table with appearances, matching-document count and coverage, source count and latest document update. Filter by entity text/type/minimum appearances; export CSV. Expand each row for source distribution, a daily UTC update timeline, first/latest dates, example passages, supporting citations and co-occurring entities. Name/related-entity clicks search saved topic membership. Counts cover exact-name matches in analyzed evidence, not omitted text; aliases are not merged and co-occurrence does not imply a relationship. |
+| Graph snapshot | Saved graph of at most 80 central evidence documents; automatic community/force/circle/grid arrangement, fit and PNG export. Search across full saved node text or IDs, then use the keyboard-accessible matching-node finder. Search highlights matches. Click a node to select; click it again, click the background or press Escape to unselect. Right-click a node for Show node details, Explore live connections, Find related topics, Unselect node and Fit graph to view. A Node actions button provides the same menu for keyboard/touch users. Enter on the canvas opens the selected document. Selected-node text and actions appear below the canvas. |
+| Search topic documents | Keyword search within full persisted membership; current source content, document drawer and graph links. Exact total with 20 rows/page; at most 1,020 results can be paged, with a prompt to narrow larger searches. Historical reports without membership search only selected evidence and say so. |
+| LLM activity | Provider/model, trigger, centrality/selection policy, tokens and response reserve, timestamp, exact system instructions, structured returned JSON and full evidence JSON download. |
+
+The graph is a saved evidence subgraph, not the entire live community. Opening live connections
+may show changes since analysis. The overview and dossier retain historical IDs/version and never
+assume a saved community number refers to the same group after a later clustering run.
+
+### 13.4 Communities analysis controls and import
+
+`AnalysisPanel` on Communities uses **Automatic · maximum that fits the model** for Documents
+per topic. It has no editable document-count field. Period choices are Last 24 hours, Last 7 days,
+Last 30 days, Custom range and All time. Custom range uses a date/time RangePicker; Analyze now
+is disabled until both ordered dates are valid. Maximum topics remains configurable (100 default).
+Show provider/model readiness, next daily run, job progress, report history, per-topic evidence and
+errors. Unconfigured providers disable submission with the relevant environment-variable hint.
+
+Import options include **Run AI analysis after import**. Enabling it forces clustering on and
+queues analysis for exactly the accepted CSV IDs, including unchanged rows. Provider configuration
+is checked before import. The completed import shows the linked analysis job and **Open imported
+Topics**. Existing import progress and per-row failure reporting continue to apply.
+
+### 13.5 Similarity graph community navigator and layout controls
+
+Detected communities appear **inside the graph card**, alongside the canvas. The navigator lists
+descriptive saved titles for the current clustering version, or representative node text otherwise.
+Avoid raw `C59`/`C61` lists as the primary navigation. Search the group names, toggle visibility
+with checkboxes, or click a row to focus and highlight that group directly on the graph. A selected
+row exposes Analyze highlighted community; otherwise Send to analysis submits the displayed
+groups' full membership. Show all clears the active community focus.
+
+The toolbar adds a Communities navigator toggle, a direct **Highlight communities** switch
+for colored outlines and group names, Group communities / Force layout / Circular layout /
+Grid layout selector, Auto-arrange, zoom in/out, and an Appearance popover. Appearance contains
+document-label and community-boundary switches, a separation slider and Reset layout. Preserve
+Fit to view, pause/resume and PNG export. Boundaries have translucent community colors and
+readable group names; selections/highlights retain contrast in both themes. Static arrangements
+and paused/reduced-motion layouts stay still when selecting or dragging a node. At narrow widths
+the navigator stacks above the canvas with its own bounded scroll area and controls wrap.
+
+### 13.6 Accessibility and verification
+
+Searches, layout selectors, visibility toggles and icon-only actions have explicit accessible
+names. Node menus are also available through a button, because canvas hit testing alone is not
+keyboard-accessible. Keep text colors in theme tokens; use colored glyphs with readable labels
+rather than low-contrast color-filled community tags. Both themes and mobile widths must work. Ant Design motion is disabled when the OS requests
+reduced motion; this also keeps floating menus/selects correctly positioned.
+
+`frontend/e2e/analysis.spec.ts` covers automatic sizing, custom periods, import-analysis linkage,
+Topics/dossier navigation, scoped search, saved filters, NER investigation, export, deletion,
+community highlighting, graph controls, node text search/selection/context menus, entity counts/filters/row details/CSV and accessibility.
+`frontend/scripts/a11y-audit.mjs` includes Topics plus dossier graph/documents/LLM tabs; run against
+the live UI with `BASE=http://localhost:3000 npm run audit:a11y`. `CASE_FILTER=topic` or `graph`
+selects a subset. Production verification also includes TypeScript/Vite and the existing Vitest suite.

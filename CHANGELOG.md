@@ -4,7 +4,12 @@
 
 - Configurable Gemini (default) and OpenAI analysis of top-k recent documents per discovered Leiden community.
 - Daily 24-hour analysis, on-demand API/UI jobs, persistent reports and scheduling, evidence snapshots, partial failures and cancellation.
-- Provider, pipeline, scheduler, API and browser tests; opt-in live Compose/LLM smoke test.
+- Automatic maximum-fitting evidence selection, exact Gemini token counting/OpenAI tokenization, custom/all-time periods and comma-separated provider key failover.
+- Entity intelligence with reproducible appearance/document counts, sources, dated activity, co-occurrences, contextual evidence, sorting/filtering and CSV export.
+- Integrated Topics overview and dossiers with narratives, cited NER, sentiment, classifications, conservative period trends, saved topics, date/classification filters, exports and topic deletion.
+- CSV opt-in analysis of exact accepted IDs, graph/community analysis actions and document-to-topic links.
+- In-card named community navigation, direct highlighting, layouts, auto-arrange, appearance/zoom controls, snapshot text search, toggle selection and node context menus.
+- Provider, pipeline, scheduler, API and browser tests; opt-in live Compose/LLM smoke test; updated README, system specification and UI specification.
 
 
 ## 0.4.0
