@@ -52,7 +52,9 @@ Files: `frontend/src/components/AnalysisPanel.tsx`, `frontend/src/pages/Communit
 - Backend: 162 passed with real Qdrant HTTP/gRPC, 1 opt-in live analysis test skipped in this run.
 - Live Compose + Gemini smoke: passed against 30,072 documents, top-2 from one community.
 - Real UI: start, completed report, evidence, reload and mobile viewport verified.
-- Frontend: 31 Vitest tests and 3 Playwright tests passed; TypeScript/production build passed.
+- Frontend: 31 Vitest tests and 4 Playwright tests passed; TypeScript/production build passed.
 - SQLite restart recovery and schedule persistence covered by tests.
-- Full-stack restart persistence and light/dark accessibility audit are final verification checkpoints.
+- Full-stack restart persistence: verified unchanged reports/evidence and daily due time after restarting the API.
+- Full light/dark WCAG audit across all pages, drawers and menus: no accessibility violations.
+- Dark mobile analysis controls and expanded evidence: automated browser regression passed.
 - The requested long pasted feature list was never received; its contents could not be audited.
