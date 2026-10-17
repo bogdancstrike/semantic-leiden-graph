@@ -21,7 +21,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system app && useradd --system --gid app --home /app app \
-    && mkdir -p /cache/huggingface && chown -R app:app /cache
+    && mkdir -p /cache/huggingface /app/state && chown -R app:app /cache /app/state
 COPY --from=deps /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /app

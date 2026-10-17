@@ -8,3 +8,5 @@ frontend
 tests
 docs
 .env
+.env.*
+.state

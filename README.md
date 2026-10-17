@@ -1,11 +1,13 @@
-# Semantic Leiden Explorer (v0.3)
+# Semantic Leiden Explorer
 
 Upload raw texts, and the system finds the topics in them by itself: every document is
 embedded, linked to its nearest neighbours, and the resulting similarity graph is clustered
 with weighted **Leiden**. You then explore the corpus through **semantic, keyword and hybrid
 search**, community-aware routing, a graph view and per-community analytics.
 
-No labels, no keyword lists, no LLM enrichment: communities emerge from meaning alone.
+Communities emerge from meaning alone, without labels or keyword lists. After discovery,
+Gemini (default) or OpenAI analyzes each community’s top-k recent documents and produces
+evidence-backed topic summaries. Run analysis daily or from the Communities page.
 
 ```
 CSV / API  ─►  Elasticsearch  (content, metadata, BM25, highlights, facets)   ◄── source of truth
@@ -16,7 +18,7 @@ CSV / API  ─►  Elasticsearch  (content, metadata, BM25, highlights, facets) 
 ## Quick start
 
 ```bash
-cp .env.example .env            # change ELASTIC_PASSWORD / NEO4J_PASSWORD
+cp .env.example .env            # change store passwords; set GEMINI_API_KEY for analysis
 docker compose up --build       # first start downloads the embedding model (~470 MB)
 ```
 
@@ -55,7 +57,8 @@ All infrastructure ports bind to `127.0.0.1`; only the UI listens on all interfa
   neighbours — with highlight conditions over the nodes, legend toggles and PNG export.
 - **Communities** (`/communities`): size, cohesion, density, conductance, central documents
   and neighbouring communities; "which communities discuss X?" topic search; metric
-  conditions.
+  conditions; **Analyze now** discovers topics and analyzes their top-k recent documents,
+  with configurable lookback and topic limits, job progress, report history and evidence.
 - **Import** (`/import`): drag a CSV into the UI, map its columns (id, text, metadata, or
   generated ids) and follow the job; the progress survives leaving the page. Imports are
   upserts by `id`: re-importing changes nothing, edited rows are re-embedded, removed
@@ -65,6 +68,76 @@ All infrastructure ports bind to `127.0.0.1`; only the UI listens on all interfa
   (k/threshold) and *reconcile* (repairs Qdrant/Neo4j from Elasticsearch), clustering
   history, and **data sources** — delete every record of one import (e.g. `csv:sample.csv`)
   from all three stores.
+
+## Automatic and on-demand community analysis
+
+Set `GEMINI_API_KEY` in your local `.env` and start the stack. Gemini uses
+`gemini-flash-latest` and the `generateContent` endpoint with `X-goog-api-key`.
+Provider keys stay on the backend; `.env` and local analysis state are ignored by Git
+and excluded from Docker build contexts. The header’s API-key setting is the app’s
+`API_KEY`, separate from provider credentials.
+
+To use OpenAI instead, set `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. The default
+OpenAI model is `gpt-4.1-mini`; override `OPENAI_MODEL` or `GEMINI_MODEL` as needed.
+OpenAI uses the Responses API with `store=false`. After editing settings, run
+`docker compose up -d app` to recreate the API with the new configuration.
+
+In **Communities → Community analysis**, choose documents per topic (top-k, default 5),
+lookback hours (default 24), and maximum topics (default 100), then click **Analyze now**.
+The job continues when you leave the page. Expand a report’s topics to read summaries,
+key findings, limitations, and the exact document excerpts sent to the provider.
+Historical community IDs refer to the report’s clustering version; evidence links open
+the current document, which may have changed or been deleted since analysis.
+
+Each run:
+
+1. Refreshes weighted Leiden over the whole similarity graph, using the active graph
+   policy and minimum community size. Topic discovery does not require an LLM.
+2. Selects documents whose **content `updated_at`** is in `[run time − lookback, run time)`
+   in UTC. This includes new and edited documents, excludes future timestamps, and does
+   not use publication dates stored in metadata. Reclustering does not change this timestamp.
+3. Ranks those eligible documents in each community by weighted internal degree
+   (sum of similarities to community members), with document ID as the deterministic tie-break.
+   It keeps up to top-k per community. Older central documents cannot crowd out recent ones.
+   Documents outside a community are counted but not sent for analysis.
+4. Analyzes up to `ANALYSIS_MAX_COMMUNITIES` topics, ordered by eligible document count.
+   Reports explicitly show skipped topics. Each selected document is limited to
+   `ANALYSIS_DOCUMENT_CHARS` characters (default 4,000); truncation is shown in the report.
+5. Sends one request per selected community and validates JSON summaries and evidence IDs.
+   Transient connection, rate-limit and server errors retry up to `LLM_MAX_RETRIES` (default 2).
+   Failed topics preserve successful results and appear as a partial report. Empty windows
+   finish without calling an LLM. Duplicate active analysis requests return HTTP 409.
+
+Automatic analysis is enabled when the selected provider has a key and
+`ANALYSIS_SCHEDULE_ENABLED=true` (default). The first scheduled run is 24 hours after
+initial setup; subsequent runs are every `ANALYSIS_INTERVAL_HOURS` (default 24), always
+covering the preceding **24 hours**. On-demand runs do not reset this schedule. The API
+must be running; a missed due time runs after restart or after another background job
+finishes. Missed historical windows are not replayed. Schedule checks run every 30 seconds.
+
+Reports, evidence snapshots, and the next due time persist in SQLite on the Compose
+`analysis-state` volume. Local execution uses `.state/analysis.sqlite3`, configurable via
+`ANALYSIS_DB_PATH`. Interrupted reports become failed on restart, preserving their evidence.
+Cancellation takes effect between steps or after the current provider request finishes.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /jobs/analyze` | Start a job; optional JSON: `top_k` (1–50), `lookback_hours` (1–8,760), `max_communities` (1–1,000). Requires the app API key when configured. |
+| `GET /analysis/config` | Provider, model, input limits, readiness and daily schedule; no credentials. |
+| `GET /analysis/runs?limit=20&offset=0` | Paginated report history, without document bodies. |
+| `GET /analysis/runs/{id}` | Full immutable report and evidence. |
+| `GET /jobs/{id}` / `DELETE /jobs/{id}` | Progress and cancellation, using the existing job API. |
+
+```bash
+curl -X POST http://localhost:8000/jobs/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"top_k":5,"lookback_hours":24,"max_communities":100}'
+# Add -H "X-API-Key: $API_KEY" if app authentication is enabled.
+```
+
+See [.env.example](.env.example) for provider timeouts, retries, output limits and schedule
+settings. API contracts follow [Gemini generateContent](https://ai.google.dev/api/generate-content)
+and [OpenAI text generation](https://developers.openai.com/api/docs/guides/text).
 
 ## Documentation
 
@@ -93,11 +166,29 @@ cd frontend && npm ci && npm run dev          # UI on :5173, proxies /api -> :80
 ## Tests
 
 ```bash
-pytest -q                                      # 56 unit/API tests, no services needed
-docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.19.1
+pytest -q                                      # unit/API tests; optional integrations skip without their environment variables
+docker compose up -d qdrant                    # if the stack is not already running
 QDRANT_TEST_URL=http://localhost:6333 pytest -q tests/integration   # real Qdrant, HTTP + gRPC
-cd frontend && npm test && npm run build       # vitest + strict type-check + production build
-cd frontend && npm run audit:a11y              # axe-core WCAG 2.1 AA audit of every page (needs the UI running)
+(cd frontend && npm test && npm run build)       # vitest + strict type-check + production build
+(cd frontend && npx playwright install chromium) # once
+(cd frontend && npm run test:e2e)              # isolated browser tests, including analysis + accessibility
+(cd frontend && BASE=http://localhost:3000 npm run audit:a11y) # running Compose UI
+```
+
+The analysis tests cover both providers’ real HTTP request shapes using MockTransport,
+time-window boundaries, top-k ranking, truncation, empty windows, unassigned documents,
+provider errors, partial results, auth, cancellation, duplicate jobs, persistence and scheduling.
+Browser tests cover starting analysis, report/evidence rendering, reloading, missing keys,
+provider errors and WCAG accessibility. They start an isolated Vite server on port 5178
+and mock API responses, so they do not require infrastructure or provider credentials.
+
+An optional test exercises real clustering, selection and LLM analysis against the running
+Compose stack. It creates a persisted report using existing data and incurs one provider
+request; it includes the last year so a previously imported corpus can be used:
+
+```bash
+ANALYSIS_TEST_API_URL=http://localhost:8000 RUN_LIVE_LLM_ANALYSIS=1 \
+  pytest -q -s tests/integration/test_analysis_stack.py
 ```
 
 ## Status and honest limitations
@@ -108,7 +199,10 @@ This is a proof of concept, hardened where it was cheap to do so. See
 - **One process runs everything.** Jobs run in-process on one worker thread, so the API must
   run as a single process. Scale-out needs a shared queue.
 - **Auth is a shared API key** on mutating routes. Use OIDC (Keycloak) for anything real.
-- **Automated tests cover Qdrant for real, not Elasticsearch or Neo4j.** The Elasticsearch
-  and Neo4j adapters are covered by unit tests with fakes and mocked clients. Qdrant is also
-  tested against a real server. The full Compose stack was not exercised in CI.
-- **Leiden communities are unlabeled by design.** Central documents stand in for labels.
+- **Full-stack analysis is opt-in.** Unit/API tests use fake ES/Neo4j and real local Qdrant;
+  optional server tests cover Qdrant HTTP/gRPC. The live analysis smoke test exercises the
+  full Compose stack and configured provider. It is not part of default offline CI.
+- **LLM output is based on samples.** Reports show the selected evidence and truncation;
+  generated titles and summaries do not alter graph membership or search behavior.
+- **Reports accumulate on disk.** Back up the `analysis-state` volume; automatic retention
+  and multi-replica scheduling are not implemented.

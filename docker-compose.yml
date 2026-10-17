@@ -100,6 +100,20 @@ services:
       LEIDEN_GAMMA: ${LEIDEN_GAMMA:-1.0}
       LEIDEN_RANDOM_SEED: ${LEIDEN_RANDOM_SEED:-42}
       LEIDEN_MIN_COMMUNITY_SIZE: ${LEIDEN_MIN_COMMUNITY_SIZE:-2}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-4096}
+      ANALYSIS_TOP_K: ${ANALYSIS_TOP_K:-5}
+      ANALYSIS_MAX_COMMUNITIES: ${ANALYSIS_MAX_COMMUNITIES:-100}
+      ANALYSIS_DOCUMENT_CHARS: ${ANALYSIS_DOCUMENT_CHARS:-4000}
+      ANALYSIS_SCHEDULE_ENABLED: ${ANALYSIS_SCHEDULE_ENABLED:-true}
+      ANALYSIS_INTERVAL_HOURS: ${ANALYSIS_INTERVAL_HOURS:-24}
+      ANALYSIS_DB_PATH: /app/state/analysis.sqlite3
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-1073741824}
       UPLOAD_MAX_ROWS: ${UPLOAD_MAX_ROWS:-10000000}
       TEXT_MAX_CHARS: ${TEXT_MAX_CHARS:-20000}
@@ -112,6 +126,7 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - hf-cache:/cache/huggingface
+      - analysis-state:/app/state
     depends_on:
       elasticsearch: { condition: service_healthy }
       qdrant: { condition: service_healthy }
@@ -163,3 +178,4 @@ volumes:
   neo4j-data:
   neo4j-plugins:
   hf-cache:
+  analysis-state:

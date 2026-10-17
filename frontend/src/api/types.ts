@@ -328,7 +328,56 @@ export interface GraphQueryResult extends GraphData {
 // ---------------------------------------------------------------------------- jobs
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
-export type JobKind = 'import' | 'rebuild' | 'cluster' | 'reconcile' | 'delete'
+export type JobKind = 'import' | 'rebuild' | 'cluster' | 'reconcile' | 'delete' | 'analysis'
+
+export interface AnalysisRequest {
+  top_k?: number
+  lookback_hours?: number
+  max_communities?: number
+}
+
+export interface AnalysisConfig {
+  provider: 'gemini' | 'openai'
+  model: string
+  configured: boolean
+  top_k: number
+  max_communities: number
+  document_chars: number
+  schedule: { enabled: boolean; interval_hours: number; lookback_hours: number; next_run_at: string | null }
+}
+
+export interface CommunityAnalysis {
+  community_id: number
+  document_count: number
+  status: 'pending' | 'succeeded' | 'failed'
+  error?: string
+  documents: { id: string; external_id: string; text: string; truncated: boolean; strength: number; updated_at: string; source: string | null }[]
+  analysis?: { title: string; summary: string; key_findings: string[]; uncertainties: string[]; evidence_ids: string[] }
+}
+
+export interface AnalysisRun {
+  id: string
+  job_id?: string
+  created_at: string
+  finished_at?: string
+  status: JobStatus | 'partial'
+  trigger: 'manual' | 'scheduled'
+  provider: string
+  model: string
+  top_k: number
+  max_communities: number
+  window_start: string
+  window_end: string
+  community_version?: number
+  eligible_documents?: number
+  unassigned_documents?: number
+  eligible_communities?: number
+  skipped_communities?: number
+  succeeded_communities?: number
+  failed_communities?: number
+  error?: string
+  communities?: CommunityAnalysis[]
+}
 
 export interface Job {
   id: string

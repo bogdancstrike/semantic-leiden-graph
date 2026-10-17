@@ -47,6 +47,7 @@ import { SavedSearchButtons } from '@/components/SavedSearches'
 import { MODES } from '@/components/search/defaults'
 import { SearchBox } from '@/components/search/SearchBox'
 import { StatCard } from '@/components/StatCard'
+import { AnalysisPanel } from '@/components/AnalysisPanel'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { parseJson, useUrlState } from '@/hooks/useUrlState'
 import { fmtInt, fmtScore } from '@/lib/format'
@@ -433,6 +434,8 @@ export default function CommunitiesPage() {
         subtitle="Topic clusters found by Leiden on the similarity graph, with quality metrics from graph structure alone."
         actions={<SavedSearchButtons summary={summary || 'All communities'} disabled={!summary} />}
       />
+
+      <AnalysisPanel />
 
       <Card className="nu-explorer-controls" size="small">
         <div className="nu-explorer-toolbar">

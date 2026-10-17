@@ -1,5 +1,8 @@
 import { API_PREFIX, STORAGE_KEYS } from '@/config'
 import type {
+  AnalysisConfig,
+  AnalysisRequest,
+  AnalysisRun,
   ClusterRun,
   Community,
   CommunityDetail,
@@ -102,6 +105,10 @@ function qs(params: Record<string, string | number | boolean | undefined | null 
 }
 
 export const api = {
+  analysisConfig: (signal?: AbortSignal) => request<AnalysisConfig>('/analysis/config', { signal }),
+  analysisRuns: (offset = 0, signal?: AbortSignal) => request<{ runs: AnalysisRun[]; total: number }>(`/analysis/runs${qs({ limit: 20, offset })}`, { signal }),
+  analysisRun: (id: string, signal?: AbortSignal) => request<AnalysisRun>(`/analysis/runs/${encodeURIComponent(id)}`, { signal }),
+  analyze: (body: AnalysisRequest) => post<Job>('/jobs/analyze', body),
   ready: (signal?: AbortSignal) =>
     fetch(`${API_PREFIX}/ready`, { signal }).then(async (r) => ({
       ok: r.ok,

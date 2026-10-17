@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — community analysis
+
+- Configurable Gemini (default) and OpenAI analysis of top-k recent documents per discovered Leiden community.
+- Daily 24-hour analysis, on-demand API/UI jobs, persistent reports and scheduling, evidence snapshots, partial failures and cancellation.
+- Provider, pipeline, scheduler, API and browser tests; opt-in live Compose/LLM smoke test.
+
+
 ## 0.4.0
 
 ### UI (aligned with the Nucleus dashboard template)

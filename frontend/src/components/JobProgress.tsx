@@ -6,6 +6,12 @@ import { fmtInt } from '@/lib/format'
 import type { Job } from '@/api/types'
 
 const PHASES: Record<Job['kind'], { key: string; title: string }[]> = {
+  analysis: [
+    { key: 'leiden', title: 'Discover' },
+    { key: 'selecting evidence', title: 'Select' },
+    { key: 'analyzing communities', title: 'Analyze' },
+    { key: 'done', title: 'Done' },
+  ],
   import: [
     { key: 'counting', title: 'Read' },
     { key: 'indexing', title: 'Index' },
@@ -105,6 +111,7 @@ export function JobProgress({ jobId, onDone }: { jobId: string; onDone?: (job: J
 }
 
 export const JOB_LABELS: Record<Job['kind'], string> = {
+  analysis: 'Community analysis',
   import: 'Import',
   rebuild: 'Rebuild graph',
   cluster: 'Clustering',
