@@ -24,7 +24,7 @@ def test_live_cluster_top_k_and_analysis_report():
         assert config["configured"]
         assert config["schedule"]["enabled"]
         assert config["schedule"]["next_run_at"]
-        response = client.post("/jobs/analyze", json={"top_k": 2, "max_communities": 1, "lookback_hours": 8760})
+        response = client.post("/jobs/analyze", json={"time_range": "all", "max_communities": 1})
         assert response.status_code == 202, response.text
         job_id = response.json()["id"]
         deadline = time.monotonic() + 180
@@ -40,7 +40,19 @@ def test_live_cluster_top_k_and_analysis_report():
         assert report["community_version"] > 0
         assert len(report["communities"]) == 1
         community = report["communities"][0]
-        assert 1 <= len(community["documents"]) <= 2
+        assert 1 <= len(community["documents"]) <= community["document_count"]
+        assert report["selection_mode"] == "auto"
+        assert community["token_budget"]["input_tokens"] <= community["token_budget"]["input_budget"]
+        assert community["analysis"]["narratives"]
+        assert "entities" in community["analysis"]
+        sent = {doc["id"] for doc in community["documents"]}
+        for entity in community["analysis"]["entities"]:
+            assert entity["evidence_ids"] and set(entity["evidence_ids"]) <= sent
+        topic_id = f"{report_id}:{community['community_id']}"
+        detail = client.get(f"/analysis/topics/{topic_id}").json()
+        assert detail["community"]["graph"]["nodes"]
+        docs = client.get(f"/analysis/topics/{topic_id}/documents").json()
+        assert docs["membership_available"] and docs["total"] == community["document_count"]
         assert community["analysis"]["summary"]
         assert set(community["analysis"]["evidence_ids"]) <= {doc["id"] for doc in community["documents"]}
         assert community["documents"] == sorted(community["documents"], key=lambda doc: (-doc["strength"], doc["id"]))

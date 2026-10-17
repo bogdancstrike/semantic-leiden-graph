@@ -8,6 +8,8 @@ import { Button } from 'antd'
 // Route-level code splitting: the graph (d3), import (papaparse), charts (echarts)
 // and the query builder are only downloaded by the pages that use them.
 // `lazyPage` reloads once when a deploy has replaced the chunks this tab expects.
+const TopicsPage = lazyPage(() => import('@/pages/TopicsPage'))
+const TopicDetailPage = lazyPage(() => import('@/pages/TopicDetailPage'))
 const OverviewPage = lazyPage(() => import('@/pages/OverviewPage'))
 const ExplorePage = lazyPage(() => import('@/pages/ExplorePage'))
 const GraphPage = lazyPage(() => import('@/pages/GraphPage'))
@@ -72,6 +74,9 @@ export default function App() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<Home />} />
+        <Route path="topics" element={<TopicsPage />} />
+        <Route path="topics/:id" element={<TopicDetailPage />} />
+        <Route path="summaries" element={<Navigate to="/topics" replace />} />
         <Route path="documents" element={<ExplorePage />} />
         <Route path="explore" element={<Navigate to="/documents" replace />} />
         <Route path="search" element={<Navigate to="/documents" replace />} />

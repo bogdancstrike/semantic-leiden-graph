@@ -30,6 +30,9 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 
 export interface GraphCanvasHandle {
   fit: () => void
+  rearrange: () => void
+  zoomBy: (scale: number) => void
+  focusCommunity: (id: number) => void
   exportPng: () => void
   focusNode: (id: string) => void
   /** Select without moving the camera (e.g. the centre of a neighbourhood on arrival). */
@@ -75,7 +78,14 @@ export const CANVAS_PALETTES: Record<'light' | 'dark', CanvasPalette> = {
   },
 }
 
+export type GraphArrangement = 'force' | 'communities' | 'circle' | 'grid'
+
 interface Props {
+  arrangement?: GraphArrangement
+  separation?: number
+  showLabels?: boolean
+  showCommunities?: boolean
+  communityNames?: Record<string, string>
   data: GraphData
   hidden: Set<string>
   selectedId: string | null
@@ -92,6 +102,7 @@ interface Props {
   palette: CanvasPalette
   onSelect: (node: SimNode | null) => void
   onOpen: (id: string) => void
+  onContextMenu?: (node: SimNode | null, point: { x: number; y: number }) => void
 }
 
 const keyOf = (id: number | null) => (id === null ? 'none' : String(id))
@@ -105,7 +116,7 @@ const keyOf = (id: number | null) => (id === null ? 'none' : String(id))
  * hover or selection changes. Selection never restarts the simulation.
  */
 export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(
-  { data, hidden, selectedId, paused, reducedMotion, highlight, hideUnmatched, seeds, centerId = null, palette, onSelect, onOpen },
+  { data, hidden, selectedId, paused, reducedMotion, highlight, hideUnmatched, seeds, centerId = null, palette, onSelect, onOpen, onContextMenu, arrangement = 'force', separation = 1, showLabels = false, showCommunities = false, communityNames = {} },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -123,8 +134,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   // Once the reader pans or zooms, the camera is theirs: no automatic re-fit.
   const userMovedRef = useRef(false)
   const fitRef = useRef<() => void>(() => undefined)
-  const propsRef = useRef({ hidden, selectedId, highlight, hideUnmatched, seeds, centerId, palette })
-  propsRef.current = { hidden, selectedId, highlight, hideUnmatched, seeds, centerId, palette }
+  const propsRef = useRef({ hidden, selectedId, highlight, hideUnmatched, seeds, centerId, palette, showLabels, showCommunities, communityNames, arrangement, paused, reducedMotion })
+  propsRef.current = { hidden, selectedId, highlight, hideUnmatched, seeds, centerId, palette, showLabels, showCommunities, communityNames, arrangement, paused, reducedMotion }
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: SimNode } | null>(null)
 
   // ------------------------------------------------------------------ drawing
@@ -147,6 +158,20 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     ctx.clearRect(0, 0, width, height)
     ctx.translate(t.x, t.y)
     ctx.scale(t.k, t.k)
+
+    if (propsRef.current.showCommunities) {
+      const groups = new Map<string, SimNode[]>()
+      for (const node of nodesRef.current) { if (!visible(node) || node.community_id === null) continue; const key = String(node.community_id); const list = groups.get(key); if (list) list.push(node); else groups.set(key, [node]) }
+      for (const [key, nodes] of groups) {
+        const xs = nodes.map(n => n.x ?? 0), ys = nodes.map(n => n.y ?? 0)
+        const x = Math.min(...xs) - 18, y = Math.min(...ys) - 26, w = Math.max(...xs) - x + 18, h = Math.max(...ys) - y + 18
+        ctx.fillStyle = nodes[0].color; ctx.globalAlpha = nodes.every(dimmed) ? .015 : .06; ctx.fillRect(x, y, w, h)
+        ctx.strokeStyle = nodes[0].color; ctx.globalAlpha = nodes.every(dimmed) ? .1 : .5; ctx.lineWidth = 1.2 / t.k; ctx.strokeRect(x, y, w, h)
+        ctx.globalAlpha = nodes.every(dimmed) ? .2 : 1; ctx.fillStyle = paint.label; ctx.font = `${11 / t.k}px Inter, sans-serif`
+        ctx.fillText((propsRef.current.communityNames[key] ?? `Community ${key}`).slice(0, 46), x + 6 / t.k, y + 13 / t.k)
+      }
+      ctx.globalAlpha = 1
+    }
 
     // links: batched paths (dimmed context, normal, emphasised)
     ctx.lineWidth = 1 / t.k
@@ -283,14 +308,14 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     ring(hoverRef.current, paint.hover)
 
     // labels only when zoomed in, and only near the focus, to keep frames cheap
-    if (t.k > 1.6 || focus) {
+    if (propsRef.current.showLabels || t.k > 1.6 || focus) {
       ctx.font = `${11 / t.k}px 'Inter Variable', Inter, sans-serif`
       ctx.fillStyle = paint.label
       let labelled = 0
       for (const n of nodesRef.current) {
         if (labelled > 120 || !visible(n)) continue
         if (dimmed(n) || marked.has(n.id)) continue
-        if (!focus && t.k <= 1.6) continue
+        if (!propsRef.current.showLabels && !focus && t.k <= 1.6) continue
         ctx.fillText(n.external_id ?? n.id.slice(0, 8), n.x! + n.radius + 3 / t.k, n.y! + 3 / t.k)
         labelled += 1
       }
@@ -387,17 +412,19 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     adjacencyRef.current = graph.adjacency
     const n = graph.nodes.length
     const large = n > 1500
+    const communityIds = [...new Set(graph.nodes.map(n => n.community_id))]
+    const centers = new Map(communityIds.map((id, i) => [id, { x: Math.cos(i * 2 * Math.PI / Math.max(communityIds.length, 1)) * Math.sqrt(n) * 22 * separation, y: Math.sin(i * 2 * Math.PI / Math.max(communityIds.length, 1)) * Math.sqrt(n) * 22 * separation }]))
     const simulation = forceSimulation<SimNode, SimLink>(graph.nodes)
       .force(
         'link',
         forceLink<SimNode, SimLink>(graph.links)
           .id((d) => d.id)
-          .distance((l) => 18 + (1 - l.score) * 140)
-          .strength((l) => Math.max(0.05, l.score * l.score)),
+          .distance((l) => arrangement === 'communities' && l.source.community_id !== l.target.community_id ? 180 * separation : 18 + (1 - l.score) * 140)
+          .strength((l) => Math.max(0.05, l.score * l.score) * (arrangement === 'communities' && l.source.community_id !== l.target.community_id ? .1 : 1)),
       )
-      .force('charge', forceManyBody<SimNode>().strength(large ? -18 : -42).distanceMax(large ? 180 : 320).theta(large ? 1.2 : 0.9))
-      .force('x', forceX<SimNode>(0).strength(0.04))
-      .force('y', forceY<SimNode>(0).strength(0.04))
+      .force('charge', forceManyBody<SimNode>().strength((large ? -18 : -42) * separation).distanceMax(large ? 180 : 320).theta(large ? 1.2 : 0.9))
+      .force('x', forceX<SimNode>(d => arrangement === 'communities' ? centers.get(d.community_id)!.x : 0).strength(arrangement === 'communities' ? .18 : .04))
+      .force('y', forceY<SimNode>(d => arrangement === 'communities' ? centers.get(d.community_id)!.y : 0).strength(arrangement === 'communities' ? .18 : .04))
       .alphaDecay(large ? 0.05 : 0.0228)
     if (!large) simulation.force('collide', forceCollide<SimNode>((d) => d.radius + 1.5).iterations(1))
 
@@ -408,7 +435,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       // Larger layouts keep spreading after the first fit; frame the settled picture.
       if (!userMovedRef.current) fitRef.current()
     })
-    if (reducedMotion) {
+    if (arrangement === 'circle' || arrangement === 'grid') {
+      simulation.stop()
+      const ordered = [...graph.nodes].sort((a, b) => (a.community_id ?? -1) - (b.community_id ?? -1) || a.id.localeCompare(b.id))
+      const columns = Math.ceil(Math.sqrt(n))
+      ordered.forEach((node, i) => { node.vx = node.vy = 0; node.x = arrangement === 'circle' ? Math.cos(i * 2 * Math.PI / n) * n * 4 * separation : (i % columns - columns / 2) * 24 * separation; node.y = arrangement === 'circle' ? Math.sin(i * 2 * Math.PI / n) * n * 4 * separation : (Math.floor(i / columns) - columns / 2) * 24 * separation })
+      requestDraw()
+    } else if (reducedMotion) {
       simulation.stop()
       simulation.tick(Math.min(300, Math.ceil(Math.log(simulation.alphaMin()) / Math.log(1 - simulation.alphaDecay()))))
       requestDraw()
@@ -419,17 +452,17 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       simulation.stop()
       simulation.on('tick', null).on('end', null)
     }
-  }, [graph, reducedMotion, requestDraw])
+  }, [graph, reducedMotion, requestDraw, arrangement, separation])
 
   useEffect(() => {
     const sim = simRef.current
-    if (!sim || reducedMotion) return
+    if (!sim || reducedMotion || arrangement === 'circle' || arrangement === 'grid') return
     if (paused) sim.stop()
     else if (sim.alpha() > sim.alphaMin()) sim.restart()
-  }, [paused, reducedMotion, graph])
+  }, [paused, reducedMotion, graph, arrangement])
 
   // redraw (never re-simulate) on selection / legend / highlight / theme changes
-  useEffect(() => requestDraw(), [hidden, selectedId, highlight, hideUnmatched, seeds, centerId, palette, requestDraw])
+  useEffect(() => requestDraw(), [hidden, selectedId, highlight, hideUnmatched, seeds, centerId, palette, showLabels, showCommunities, communityNames, requestDraw])
 
   // ------------------------------------------------------------------ size, zoom, drag, pointer
   useEffect(() => {
@@ -463,7 +496,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       // for mouse and touch alike; TouchEvents have no clientX.
       .subject((event) => findNodeLocal(event.x, event.y) ?? undefined)
       .on('start', (event) => {
-        if (!event.active) simRef.current?.alphaTarget(0.25).restart()
+        if (!event.active && !propsRef.current.paused && !propsRef.current.reducedMotion && !['circle', 'grid'].includes(propsRef.current.arrangement)) simRef.current?.alphaTarget(0.25).restart()
         event.subject!.fx = event.subject!.x
         event.subject!.fy = event.subject!.y
       })
@@ -472,6 +505,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         const k = transformRef.current.k
         event.subject!.fx = event.subject!.fx! + event.dx / k
         event.subject!.fy = event.subject!.fy! + event.dy / k
+        event.subject!.x = event.subject!.fx
+        event.subject!.y = event.subject!.fy
+        requestDraw()
       })
       .on('end', (event) => {
         if (!event.active) simRef.current?.alphaTarget(0)
@@ -524,6 +560,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     ref,
     () => ({
       fit,
+      rearrange: () => { const sim = simRef.current; if (!sim) return; nodesRef.current.forEach((n, i) => { n.fx = n.fy = null; n.x = Math.cos(i * 2.39996) * Math.sqrt(i) * 12; n.y = Math.sin(i * 2.39996) * Math.sqrt(i) * 12; n.vx = n.vy = 0 }); sim.alpha(1); if (reducedMotion) { sim.stop(); sim.tick(200); requestDraw(); fit() } else sim.restart() },
+      zoomBy: (scale) => { if (canvasRef.current && zoomRef.current) select(canvasRef.current).call(zoomRef.current.scaleBy, scale) },
+      focusCommunity: (id) => { const nodes = nodesRef.current.filter(n => n.community_id === id && isVisible(n)); if (!nodes.length || !canvasRef.current || !zoomRef.current) return; const xs = nodes.map(n => n.x ?? 0), ys = nodes.map(n => n.y ?? 0); const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys); const k = Math.min(4, sizeRef.current.width / (maxX-minX+80), sizeRef.current.height / (maxY-minY+80)); select(canvasRef.current).call(zoomRef.current.transform, zoomIdentity.translate(sizeRef.current.width / 2, sizeRef.current.height / 2).scale(k).translate(-(minX+maxX)/2, -(minY+maxY)/2)); userMovedRef.current = true },
       selectNode: (id: string) => {
         const node = nodesRef.current.find((n) => n.id === id)
         if (node) onSelect(node)
@@ -559,7 +598,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         })
       },
     }),
-    [fit, onSelect],
+    [fit, onSelect, reducedMotion, requestDraw],
   )
 
   // auto-fit once the first layout settles a bit
@@ -581,7 +620,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
           setTooltip(null)
           requestDraw()
         }}
-        onClick={(e) => onSelect(findNode(e.clientX, e.clientY))}
+        onClick={(e) => { const node = findNode(e.clientX, e.clientY); onSelect(node?.id === propsRef.current.selectedId ? null : node) }}
+        onContextMenu={(e) => { if (!onContextMenu) return; e.preventDefault(); setTooltip(null); onContextMenu(findNode(e.clientX, e.clientY), { x: e.clientX, y: e.clientY }) }}
+        onKeyDown={(e) => { if (e.key === 'Escape') onSelect(null); if (e.key === 'Enter' && propsRef.current.selectedId) onOpen(propsRef.current.selectedId) }}
         onDoubleClick={(e) => {
           const node = findNode(e.clientX, e.clientY)
           if (node) onOpen(node.id)
@@ -591,8 +632,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         <div
           className="graph-tooltip"
           style={{
-            left: Math.min(tooltip.x + 14, sizeRef.current.width - 330),
-            top: Math.min(tooltip.y + 14, sizeRef.current.height - 120),
+            left: Math.max(4, Math.min(tooltip.x + 14, sizeRef.current.width - 330)),
+            top: Math.max(4, Math.min(tooltip.y + 14, sizeRef.current.height - 120)),
           }}
         >
           <div className="sl-result-meta" style={{ marginBottom: 4 }}>

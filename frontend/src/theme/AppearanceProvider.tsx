@@ -8,6 +8,7 @@
 
 import { ConfigProvider } from 'antd'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { usePrefersReducedMotion } from '@/hooks/useReducedMotion'
 import { STORAGE_KEYS } from '@/config'
 import { buildTheme, cssVariables, resolveAppearance, type Appearance } from './antd'
 import { buildChartTheme, type ChartTheme } from './echarts'
@@ -71,6 +72,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     return () => query.removeEventListener('change', listener)
   }, [])
 
+  const reducedMotion = usePrefersReducedMotion()
   const mode = appearance === 'system' ? systemMode : appearance
   // Compact is a mouse setting: 28px controls miss the 24px touch minimum on a phone.
   const rendered: Density = handheld && density === 'compact' ? 'middle' : density
@@ -94,7 +96,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', mode === 'dark' ? '#0e0f14' : '#ffffff')
   }, [rendered, mode])
 
-  const theme = useMemo(() => buildTheme(mode, rendered), [mode, rendered])
+  const theme = useMemo(() => { const base = buildTheme(mode, rendered); return { ...base, token: { ...base.token, motion: !reducedMotion } } }, [mode, rendered, reducedMotion])
   const chartTheme = useMemo(() => buildChartTheme(mode, rendered), [mode, rendered])
   const value = useMemo(
     () => ({ appearance, mode, density, setAppearance, setDensity, chartTheme }),

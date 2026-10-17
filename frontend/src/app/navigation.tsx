@@ -5,6 +5,7 @@ import {
   ControlOutlined,
   DashboardOutlined,
   ImportOutlined,
+  ReadOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
 
@@ -27,7 +28,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     key: 'overview',
     label: 'Overview',
-    items: [{ key: '/', label: 'Dashboard', icon: <DashboardOutlined />, title: 'Dashboard' }],
+    items: [{ key: '/', label: 'Dashboard', icon: <DashboardOutlined />, title: 'Dashboard' }, { key: '/topics', label: 'Topics', icon: <ReadOutlined />, title: 'Topics' }],
   },
   {
     key: 'explore',

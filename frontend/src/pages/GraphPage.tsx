@@ -52,15 +52,16 @@ import {
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/api/client'
-import { keys, useCommunities, useConfig, useExploreFields } from '@/api/hooks'
+import { keys, useCommunities, useConfig, useExploreFields, useStats } from '@/api/hooks'
 import type { GraphData, GraphQueryResult, QueryNode, SearchMode } from '@/api/types'
 import { PAGE_DOCS } from '@/app/pageDocs'
 import { CommunityKey } from '@/components/CommunityKey'
 import { FilterChip } from '@/components/Chip'
 import { useDocumentDrawer } from '@/components/DocumentDrawer'
 import { EmptyState } from '@/components/EmptyState'
-import { CANVAS_PALETTES, GraphCanvas, type GraphCanvasHandle, type SimNode } from '@/components/graph/GraphCanvas'
+import { CANVAS_PALETTES, GraphCanvas, type GraphCanvasHandle, type GraphArrangement, type SimNode } from '@/components/graph/GraphCanvas'
 import { PageDoc } from '@/components/PageDoc'
+import { CommunityNavigator } from '@/components/graph/CommunityNavigator'
 import { PageHeader } from '@/components/PageHeader'
 import { ActiveConditions, AdvancedConditionsDrawer, type ConditionPreset, type PreviewState } from '@/components/query/AdvancedConditionsDrawer'
 import { describeTreeLocally, matchesTree, type EvalRecord } from '@/components/query/evaluate'
@@ -74,7 +75,6 @@ import { usePrefersReducedMotion } from '@/hooks/useReducedMotion'
 import { parseIds, parseJson, positiveInt, similarityBand, useUrlState } from '@/hooks/useUrlState'
 import { fmtInt, fmtScore } from '@/lib/format'
 import { links, rule } from '@/lib/links'
-import { communityColor, communityLabel } from '@/lib/palette'
 import { useAppearance } from '@/theme/AppearanceProvider'
 
 type View = 'top' | 'communities' | 'focus' | 'query'
@@ -234,6 +234,14 @@ export default function GraphPage() {
   const reducedMotion = usePrefersReducedMotion()
   const { mode: appearance } = useAppearance()
   const canvasRef = useRef<GraphCanvasHandle>(null)
+  const [arrangement, setArrangement] = useState<GraphArrangement>('communities')
+  const [separation, setSeparation] = useState(1)
+  const [showLabels, setShowLabels] = useState(false)
+  const [showBoundaries, setShowBoundaries] = useState(true)
+  const [showNavigator, setShowNavigator] = useState(true)
+  const [activeCommunity, setActiveCommunity] = useState<number | null>(null)
+  const currentVersion = useStats().data?.last_cluster_run?.version
+  const topicNames = useQuery({ queryKey: ['topics', 'graph-labels'], queryFn: ({ signal }) => api.topics({}, signal), staleTime: 30_000 })
   const [params, set] = useUrlState()
   const { data: communities = [] } = useCommunities()
   const catalogue = useExploreFields()
@@ -367,6 +375,17 @@ export default function GraphPage() {
     }
     return [...counts.entries()].sort((a, b) => b[1].count - a[1].count)
   }, [data])
+
+  const detectedGroups = useMemo(() => legend.flatMap(([, entry]) => {
+    if (entry.id === null) return []
+    const nodes = data?.nodes.filter(n => n.community_id === entry.id) ?? []
+    const saved = topicNames.data?.topics.find(t => t.community_id === entry.id && t.community_version === currentVersion && t.analysis?.title)
+    const representative = nodes.find(n => n.text)?.text ?? 'Untitled document group'
+    const name = saved?.analysis?.title ?? representative.split(/[.!?\n]/)[0].slice(0, 80)
+    return [{ id: entry.id, name, shown: entry.count, total: communities.find(c => c.community_id === entry.id)?.size }]
+  }), [legend, data, topicNames.data, currentVersion, communities])
+  const communityNames = useMemo(() => Object.fromEntries(detectedGroups.map(g => [String(g.id), g.name])), [detectedGroups])
+  const focusCommunity = (id: number | null) => { setActiveCommunity(id); setSelected(null); set({ hl: id === null ? null : JSON.stringify(treeFromRules([rule.communities([id])])) }); if (id === null) canvasRef.current?.fit(); else canvasRef.current?.focusCommunity(id) }
 
   const communityChoices = useMemo(
     () => legend.filter(([, e]) => e.id !== null).map(([, e]) => ({ value: e.id as number, label: `C${e.id}`, count: e.count })),
@@ -699,7 +718,12 @@ export default function GraphPage() {
           </Space>
         }
         extra={
-          <Space size={4}>
+          <Space size={4} wrap>
+            <Button onClick={() => setShowNavigator(v => !v)} aria-pressed={showNavigator}>Communities</Button>
+            <Select aria-label="Graph arrangement" value={arrangement} onChange={setArrangement} style={{ width: 160 }} options={[{ value: 'communities', label: 'Group communities' }, { value: 'force', label: 'Force layout' }, { value: 'circle', label: 'Circular layout' }, { value: 'grid', label: 'Grid layout' }]} />
+            <Button onClick={() => { setArrangement('communities'); setPaused(false); canvasRef.current?.rearrange() }}>Auto-arrange</Button>
+            <Popover title="Graph appearance" trigger="click" content={<Space direction="vertical"><label><Switch aria-label="Document labels" checked={showLabels} onChange={setShowLabels} size="small" /> Document labels</label><label><Switch aria-label="Community boundaries" checked={showBoundaries} onChange={setShowBoundaries} size="small" /> Community boundaries</label><Typography.Text>Community separation</Typography.Text><Slider aria-label="Community separation" min={.5} max={3} step={.1} value={separation} onChange={setSeparation} style={{ width: 200 }} /><Button onClick={() => { setSeparation(1); setShowLabels(false); setShowBoundaries(true); setArrangement('communities'); setPaused(false); canvasRef.current?.rearrange() }}>Reset layout</Button></Space>}><Button>Appearance</Button></Popover>
+            <Button aria-label="Zoom in" onClick={() => canvasRef.current?.zoomBy(1.3)}>+</Button><Button aria-label="Zoom out" onClick={() => canvasRef.current?.zoomBy(1/1.3)}>−</Button>
             <Popover
               trigger="click"
               placement="bottomRight"
@@ -736,11 +760,14 @@ export default function GraphPage() {
           </Space>
         }
       >
+        <div className="graph-workbench">
+        {showNavigator && !!detectedGroups.length && <CommunityNavigator groups={detectedGroups} active={activeCommunity} hidden={hidden} onHighlight={focusCommunity} onVisibility={toggle} />}
         <div className="sl-graph-stage">
           {data && data.nodes.length > 0 ? (
             <GraphCanvas
               ref={canvasRef}
               data={data}
+              arrangement={arrangement} separation={separation} showLabels={showLabels} showCommunities={showBoundaries} communityNames={communityNames}
               hidden={hidden}
               selectedId={selected?.id ?? null}
               paused={paused}
@@ -764,21 +791,6 @@ export default function GraphPage() {
           {graph.isFetching && (
             <div className="graph-overlay" style={{ top: 12, right: 12 }}>
               <Spin size="small" />
-            </div>
-          )}
-
-          {data && data.nodes.length > 0 && (
-            <div className="graph-overlay" style={{ left: 12, bottom: 12, right: 12 }}>
-              <div className="graph-legend" role="group" aria-label="Communities (toggle visibility)">
-                {legend.map(([key, entry]) => (
-                  <button key={key} type="button" className="legend-chip" aria-pressed={!hidden.has(key)} onClick={() => toggle(key)}>
-                    <span className="ckey">
-                      <span className="ckey-glyph" style={{ background: communityColor(entry.id) }} />
-                      {communityLabel(entry.id)} {entry.count}
-                    </span>
-                  </button>
-                ))}
-              </div>
             </div>
           )}
 
@@ -833,6 +845,7 @@ export default function GraphPage() {
               </Space>
             </Card>
           )}
+        </div>
         </div>
       </Card>
 

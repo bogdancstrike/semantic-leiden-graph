@@ -333,6 +333,10 @@ export type JobKind = 'import' | 'rebuild' | 'cluster' | 'reconcile' | 'delete' 
 export interface AnalysisRequest {
   top_k?: number
   lookback_hours?: number
+  community_ids?: number[]
+  time_range?: 'relative' | 'custom' | 'all'
+  window_start?: string
+  window_end?: string
   max_communities?: number
 }
 
@@ -340,11 +344,16 @@ export interface AnalysisConfig {
   provider: 'gemini' | 'openai'
   model: string
   configured: boolean
-  top_k: number
+  selection_mode: 'auto'
+  context_tokens?: number | null
+  output_reserve?: number
   max_communities: number
   document_chars: number
   schedule: { enabled: boolean; interval_hours: number; lookback_hours: number; next_run_at: string | null }
 }
+
+export interface NamedEntity { name: string; label: 'PERSON' | 'ORG' | 'LOCATION' | 'EVENT' | 'PRODUCT' | 'OTHER'; evidence_ids: string[] }
+export interface TopicTrend { direction: 'rising' | 'falling' | 'stable' | 'unavailable'; reason: string; share_change_percent?: number; previous_documents?: number; current_documents?: number; baseline_topic_id?: string; similarity?: number }
 
 export interface CommunityAnalysis {
   community_id: number
@@ -352,7 +361,10 @@ export interface CommunityAnalysis {
   status: 'pending' | 'succeeded' | 'failed'
   error?: string
   documents: { id: string; external_id: string; text: string; truncated: boolean; strength: number; updated_at: string; source: string | null }[]
-  analysis?: { title: string; summary: string; key_findings: string[]; uncertainties: string[]; evidence_ids: string[] }
+  trend?: TopicTrend
+  graph?: GraphData
+  token_budget?: { context_tokens: number; output_reserve: number; safety_margin: number; input_budget: number; input_tokens: number; selected_documents: number }
+  analysis?: { title: string; summary: string; key_findings: string[]; uncertainties: string[]; evidence_ids: string[]; narratives?: string[]; sentiment?: string; sentiment_reasoning?: string; classifications?: string[]; entities?: NamedEntity[] }
 }
 
 export interface AnalysisRun {
@@ -361,12 +373,16 @@ export interface AnalysisRun {
   created_at: string
   finished_at?: string
   status: JobStatus | 'partial'
-  trigger: 'manual' | 'scheduled'
+  trigger: 'manual' | 'scheduled' | 'import'
   provider: string
   model: string
-  top_k: number
+  top_k: number | null
+  selection_mode?: 'auto'
+  time_range?: 'relative' | 'custom' | 'all'
+  scope?: { type: string; source?: string; documents?: number }
+  instructions?: string
   max_communities: number
-  window_start: string
+  window_start: string | null
   window_end: string
   community_version?: number
   eligible_documents?: number
@@ -377,6 +393,31 @@ export interface AnalysisRun {
   failed_communities?: number
   error?: string
   communities?: CommunityAnalysis[]
+}
+
+export interface TopicSummary {
+  id: string
+  run_id: string
+  created_at: string
+  window_start: string | null
+  window_end: string
+  provider: string
+  model: string
+  community_version?: number
+  community_id: number
+  status: string
+  document_count: number
+  selected_documents: number
+  trend?: TopicTrend
+  analysis: CommunityAnalysis['analysis']
+  error?: string
+  scope?: AnalysisRun['scope']
+}
+
+export interface TopicDetail {
+  id: string
+  run: AnalysisRun
+  community: CommunityAnalysis
 }
 
 export interface Job {
@@ -409,6 +450,8 @@ export interface ImportResult {
   edges_upserted: number
   /** The first 200 per-row errors; `failed` counts all of them. */
   errors: { row?: number | null; external_id?: string | null; reason: string }[]
+  analysis_id?: string
+  analysis_job_id?: string
   clustering?: ClusterRun & { qdrant_payloads_updated: number }
   ingest_ms?: number
   total_ms?: number
@@ -416,6 +459,7 @@ export interface ImportResult {
 
 export interface UploadOptions {
   runCluster: boolean
+  runAnalysis?: boolean
   rebuild: boolean
   source?: string
   /** The column to analyse; the server default is a column named `text`. */

@@ -19,7 +19,7 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
   App,
@@ -92,6 +92,7 @@ interface Draft {
   mapping: ColumnMapping
   source: string
   runCluster: boolean
+  runAnalysis: boolean
   rebuild: boolean
   truncateLongTexts: boolean
   /** Clustering after the import: smaller Leiden groups are left in no community. */
@@ -112,6 +113,7 @@ const EMPTY_DRAFT: Draft = {
   mapping: { textColumn: null, idColumn: null, metadataColumns: [] },
   source: '',
   runCluster: true,
+  runAnalysis: false,
   rebuild: false,
   truncateLongTexts: false,
   minCommunitySize: DEFAULT_IMPORT_MIN_COMMUNITY,
@@ -199,6 +201,7 @@ function ImportSummary({ job }: { job: Job }) {
           </Button>,
         ]}
       />
+      {result.analysis_job_id && <div style={{ marginBottom: 16 }}><Typography.Title level={5}>AI analysis</Typography.Title><JobProgress jobId={result.analysis_job_id} /><Button type="primary" onClick={() => navigate(`/topics?run=${result.analysis_id}`)}>Open imported Topics</Button></div>}
       <Descriptions
         size="small"
         bordered
@@ -578,6 +581,7 @@ const LARGE_FILE_BYTES = 100 * 1024 * 1024
 
 function OptionsCard({ draft, busy }: { draft: Draft; busy: boolean }) {
   const { data: config } = useConfig()
+  const analysisConfig = useQuery({ queryKey: ['analysis-config'], queryFn: ({ signal }) => api.analysisConfig(signal) })
   const metadataMax = useMetadataMax()
   const preview = draft.preview!
   const file = draft.file!
@@ -588,6 +592,7 @@ function OptionsCard({ draft, busy }: { draft: Draft; busy: boolean }) {
   const start = () => {
     void importSession.start(file, {
       runCluster: draft.runCluster,
+      runAnalysis: draft.runAnalysis,
       rebuild: draft.rebuild,
       truncateLongTexts: draft.truncateLongTexts,
       minCommunitySize: draft.minCommunitySize ?? DEFAULT_IMPORT_MIN_COMMUNITY,
@@ -606,9 +611,14 @@ function OptionsCard({ draft, busy }: { draft: Draft; busy: boolean }) {
           <Input value={draft.source} onChange={(e) => setDraft({ source: e.target.value })} maxLength={128} placeholder={`csv:${file.name}`} />
         </label>
         <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Switch checked={draft.runCluster} onChange={(runCluster) => setDraft({ runCluster })} />
+          <Switch checked={draft.runCluster} disabled={draft.runAnalysis} onChange={(runCluster) => setDraft({ runCluster })} />
           Run Leiden clustering afterwards
         </label>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Switch aria-label="Run AI analysis after import" checked={draft.runAnalysis} disabled={!analysisConfig.data?.configured} onChange={(runAnalysis) => setDraft({ runAnalysis, ...(runAnalysis ? { runCluster: true } : {}) })} />
+          Run AI analysis after import
+        </label>
+        <Text type="secondary">{analysisConfig.data?.configured ? 'Analyze this file’s documents, including unchanged rows, then open their Topics report. Document counts adjust automatically to the model.' : 'Configure an LLM provider key to enable AI analysis.'}</Text>
         <div className="nu-imp-mincomm">
           <label className="nu-imp-field nu-imp-field--narrow-wide">
             <Text type="secondary">Minimum community size</Text>

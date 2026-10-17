@@ -3,6 +3,8 @@ import type {
   AnalysisConfig,
   AnalysisRequest,
   AnalysisRun,
+  TopicSummary,
+  TopicDetail,
   ClusterRun,
   Community,
   CommunityDetail,
@@ -105,6 +107,10 @@ function qs(params: Record<string, string | number | boolean | undefined | null 
 }
 
 export const api = {
+  topics: (params: { q?: string; sentiment?: string; run_id?: string; document_id?: string; classification?: string; trend?: string; created_after?: string; created_before?: string; sort?: string; topic_ids?: string[]; offset?: number } = {}, signal?: AbortSignal) => request<{ topics: TopicSummary[]; total: number; stats?: { analyzed: number; pending: number; narratives: number; classifications: number; entities?: number; trending?: number } }>(`/analysis/topics${qs({ ...params, limit: 24 })}`, { signal }),
+  deleteTopic: (id: string) => request<{ deleted: boolean }>(`/analysis/topics/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  topic: (id: string, signal?: AbortSignal) => request<TopicDetail>(`/analysis/topics/${encodeURIComponent(id)}`, { signal }),
+  topicDocuments: (id: string, q = '', offset = 0, signal?: AbortSignal) => request<{ documents: DocumentRecord[]; total: number; membership_available: boolean }>(`/analysis/topics/${encodeURIComponent(id)}/documents${qs({ q, offset, limit: 20 })}`, { signal }),
   analysisConfig: (signal?: AbortSignal) => request<AnalysisConfig>('/analysis/config', { signal }),
   analysisRuns: (offset = 0, signal?: AbortSignal) => request<{ runs: AnalysisRun[]; total: number }>(`/analysis/runs${qs({ limit: 20, offset })}`, { signal }),
   analysisRun: (id: string, signal?: AbortSignal) => request<AnalysisRun>(`/analysis/runs/${encodeURIComponent(id)}`, { signal }),
@@ -177,6 +183,7 @@ export function uploadCsv(
     const form = new FormData()
     form.append('file', file)
     form.append('run_cluster', String(options.runCluster))
+    form.append('run_analysis', String(options.runAnalysis ?? false))
     form.append('rebuild', String(options.rebuild))
     if (options.source) form.append('source', options.source)
     if (options.generateIds) form.append('generate_ids', 'true')

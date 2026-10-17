@@ -69,6 +69,7 @@ function DocumentBody({ id, onOpen, onClose }: { id: string; onOpen: (id: string
 
       <Space wrap>
         <Tooltip title="Open the similarity graph around this document">
+          <Button onClick={() => { onClose(); navigate(`/topics?document=${encodeURIComponent(id)}`) }}>Related topics</Button>
           <Button icon={<ApartmentOutlined />} onClick={() => go(links.graph({ focus: doc.id }))}>
             Show in graph
           </Button>

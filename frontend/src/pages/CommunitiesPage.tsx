@@ -47,6 +47,7 @@ import { SavedSearchButtons } from '@/components/SavedSearches'
 import { MODES } from '@/components/search/defaults'
 import { SearchBox } from '@/components/search/SearchBox'
 import { StatCard } from '@/components/StatCard'
+import { GraphAnalysisActions } from '@/components/GraphAnalysisActions'
 import { AnalysisPanel } from '@/components/AnalysisPanel'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { parseJson, useUrlState } from '@/hooks/useUrlState'
@@ -147,6 +148,7 @@ function CommunityDetailPanel({ row, topic, onSelect }: { row: Row; topic: strin
         </div>
       </header>
 
+      <GraphAnalysisActions ids={[id]} />
       {isLoading ? (
         <Skeleton active paragraph={{ rows: 4 }} />
       ) : (

@@ -617,3 +617,57 @@ mark.nu-mark {
   .sl-graph-stage { min-height: 380px; }
 }
 #nu-main:focus { outline: none; }
+
+/* Intelligence briefing and report-scoped topic investigation. */
+.topics-toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.topics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 16px; }
+.topic-card { border-top: 3px solid var(--nu-accent); }
+.topic-card .ant-card-body { display: flex; flex-direction: column; height: 100%; }
+.topic-narrative { padding: 10px 12px 0; border-left: 2px solid var(--nu-border); margin-bottom: 12px; }
+.topic-card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 16px; }
+.topic-analysis { max-width: 100ch; }
+.topic-prompt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; padding: 16px; background: var(--nu-bg); border-radius: 8px; }
+
+.graph-workbench { display: flex; flex: 1; min-height: 540px; }
+.graph-workbench > .sl-graph-stage { min-width: 0; flex: 1; border-radius: 0 0 var(--nu-radius-card) 0; }
+.graph-community-navigator { width: 285px; flex: 0 0 285px; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--nu-surface); border-right: 1px solid var(--nu-border); }
+.graph-community-heading { display: flex; justify-content: space-between; gap: 8px; }
+.graph-community-list { flex: 1; max-height: 430px; overflow-y: auto; margin-inline: -8px; }
+.graph-community-row { display: flex; align-items: flex-start; gap: 8px; padding: 10px 8px; border-radius: 6px; }
+.graph-community-row .ant-checkbox-wrapper { margin-top: 3px; }
+.graph-community-row:hover, .graph-community-row.is-active { background: var(--nu-hover); }
+.graph-community-row.is-active { box-shadow: inset 3px 0 var(--nu-accent); }
+.graph-community-focus { border: 0; padding: 0; background: none; cursor: pointer; color: var(--nu-text); display: flex; gap: 8px; text-align: left; align-items: flex-start; min-width: 0; flex: 1; }
+.graph-community-focus strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; font-weight: 600; }
+.graph-community-focus small { display: block; margin-top: 4px; color: var(--nu-text-secondary); font-size: 11px; }
+.graph-community-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; margin-top: 5px; }
+@media (max-width: 991px) { .sl-graph-card > .ant-card-head > .ant-card-head-wrapper { flex-wrap: wrap; gap: 8px; padding-block: 8px; } .graph-workbench { flex-direction: column; } .graph-community-navigator { width: auto; flex-basis: auto; border-right: 0; border-bottom: 1px solid var(--nu-border); } .graph-community-list { max-height: 180px; } .graph-workbench > .sl-graph-stage { min-height: 460px; } }
+
+/* Daily OSINT reading surface: clear hierarchy, compact signals, room for evidence. */
+.briefing-kicker { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; color: var(--nu-text-secondary); font-size: 10px; letter-spacing: .13em; font-weight: 650; }
+.briefing-kicker .ant-badge-status-text { font-size: 11px; letter-spacing: normal; }
+.briefing-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 18px 0; border-top: 1px solid var(--nu-border); border-bottom: 1px solid var(--nu-border); margin-block: 2px 6px; }
+.briefing-stat { padding: 0 24px; border-right: 1px solid var(--nu-border); display: flex; flex-direction: column; gap: 4px; }
+.briefing-stat:first-child { padding-left: 0; }.briefing-stat:last-child { border-right: 0; }
+.briefing-stat span { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--nu-text-secondary); }.briefing-stat strong { font-size: 30px; letter-spacing: -.04em; line-height: 1.2; }
+.topic-card-heading { display: flex; gap: 10px; justify-content: space-between; align-items: center; }
+.topic-reference { color: var(--nu-text-secondary); font-size: 11px; font-weight: 650; letter-spacing: .05em; }
+.topic-card .topic-title { font-size: 21px; line-height: 1.35; margin: 12px 0; letter-spacing: -.02em; }
+.topic-title a { color: var(--nu-text); }.topic-title a:hover { color: var(--nu-accent-ink); }
+.topic-card { border-top: 1px solid var(--nu-border); }.topic-card-lead { border-top: 3px solid var(--nu-accent); }
+.topic-narrative ul { margin: 8px 0 10px; padding-left: 16px; }.topic-narrative li { margin-bottom: 6px; font-size: 12px; line-height: 1.6; }
+.topic-tag-button { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; font: inherit; }
+.topic-entities { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; font-size: 11px; }
+.topic-back { font-size: 12px; }.topic-dossier-layout { display: grid; grid-template-columns: minmax(0, 1fr) 285px; gap: 18px; align-items: start; }
+.topic-dossier-main { min-width: 0; }.topic-dossier-aside { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 12px; }
+.topic-summary-lead { font-size: 17px; line-height: 1.85; color: var(--nu-text); max-width: 75ch; padding: 8px 0 18px; border-bottom: 1px solid var(--nu-border); }
+.topic-reading-section { margin: 24px 0; }.topic-reading-section li { line-height: 1.8; margin-bottom: 10px; }.topic-reading-section ul { padding-left: 22px; }
+.topic-coverage { display: flex; flex-direction: column; gap: 4px; }.topic-coverage strong { font-size: 34px; line-height: 1.15; letter-spacing: -.04em; }.topic-coverage span { color: var(--nu-text-secondary); font-size: 12px; }
+.topic-small-fact { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--nu-border); font-size: 12px; color: var(--nu-text-secondary); }
+.topic-source-row { display: flex; gap: 16px; justify-content: space-between; padding: 6px 0; font-size: 12px; }.topic-source-row span { overflow-wrap: anywhere; color: var(--nu-text-secondary); }
+.topic-snapshot { position: relative; height: 500px; border: 1px solid var(--nu-border); border-radius: 8px; background: var(--nu-bg); }
+@media (max-width: 1100px) { .topic-dossier-layout { grid-template-columns: minmax(0, 1fr); }.topic-dossier-aside { position: static; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); } }
+@media (max-width: 600px) { .briefing-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.briefing-stat { padding: 0; border: 0; }.briefing-stat strong { font-size: 26px; }.topic-dossier-main > .ant-card-body { padding: 14px; }.topic-summary-lead { font-size: 15px; }.topics-toolbar > .ant-select { max-width: 100%; } }
+
+.graph-context-menu { border: 1px solid var(--nu-border); border-radius: 8px; background: var(--nu-surface-raised); box-shadow: var(--nu-shadow-md); overflow: hidden; }
+.graph-context-menu .ant-menu { border-inline-end: 0 !important; }

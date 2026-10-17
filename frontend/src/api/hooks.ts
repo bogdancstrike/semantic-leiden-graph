@@ -109,6 +109,9 @@ export function invalidateCorpus(client: QueryClient) {
       'analysis-config',
       'analysis-runs',
       'analysis-run',
+      'topics',
+      'topic',
+      'topic-documents',
     ].map((key) => client.invalidateQueries({ queryKey: [key] })),
   )
 }

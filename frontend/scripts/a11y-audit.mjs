@@ -18,6 +18,11 @@ const TAGS = (process.env.TAGS ?? 'wcag2a,wcag2aa,wcag21a,wcag21aa').split(',')
 // [name, route, steps]; a step is ['text', label] | ['click', selector] | ['wait', ms]
 const CASES = [
   ['dashboard', '/', []],
+  ['topics', '/topics', []],
+  ['topic analysis', '/topics', [['click', '.topic-card h3 a'], ['wait', 800]]],
+  ['topic graph snapshot', '/topics', [['click', '.topic-card h3 a'], ['wait', 600], ['text', 'Graph snapshot'], ['wait', 800]]],
+  ['topic document search', '/topics', [['click', '.topic-card h3 a'], ['wait', 600], ['text', 'Search topic documents'], ['wait', 600]]],
+  ['topic LLM activity', '/topics', [['click', '.topic-card h3 a'], ['wait', 600], ['text', 'LLM activity'], ['wait', 600]]],
   ['explore', '/documents', []],
   ['explore ranked', '/documents?q=railway&mode=hybrid', []],
   ['explore list', '/documents?q=railway&mode=hybrid&view=list', []],
@@ -41,7 +46,7 @@ let failures = 0
 for (const theme of ['light', 'dark']) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
   await context.addInitScript((t) => localStorage.setItem('semantic-leiden.appearance', t), theme)
-  for (const [name, route, steps] of CASES) {
+  for (const [name, route, steps] of CASES.filter(([name]) => !process.env.CASE_FILTER || name.includes(process.env.CASE_FILTER))) {
     const page = await context.newPage()
     await page.goto(BASE + route)
     await page.waitForLoadState('networkidle')
