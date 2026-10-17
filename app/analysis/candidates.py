@@ -1,22 +1,33 @@
 """Temporary disk-backed ranked evidence, deleted automatically when the job ends."""
 
+import hashlib
 import json
 import sqlite3
 from contextlib import AbstractContextManager
+
+from app.analysis.profile import normalized_timestamp, population_profile
 
 
 class Candidates(AbstractContextManager):
     def __init__(self):
         self.db = sqlite3.connect("")
         self.db.execute(
-            "CREATE TABLE candidates (cid INTEGER, id TEXT PRIMARY KEY, strength REAL, body TEXT)"
+            "CREATE TABLE candidates (cid INTEGER, id TEXT PRIMARY KEY, strength REAL, body TEXT, source TEXT, updated_at TEXT, fingerprint TEXT NOT NULL)"
         )
         self.db.execute("CREATE INDEX ranking ON candidates (cid, strength DESC, id)")
 
-    def add(self, cid, doc):
+    def add(self, cid, doc, *, fingerprint=None):
         self.db.execute(
-            "INSERT OR REPLACE INTO candidates VALUES (?, ?, ?, ?)",
-            (cid, doc["id"], doc["strength"], json.dumps(doc)),
+            "INSERT OR REPLACE INTO candidates VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                cid,
+                doc["id"],
+                doc["strength"],
+                json.dumps(doc),
+                doc.get("source"),
+                normalized_timestamp(doc.get("updated_at")),
+                fingerprint or hashlib.sha256(doc["text"].encode()).hexdigest(),
+            ),
         )
 
     def counts(self):
@@ -33,6 +44,9 @@ class Candidates(AbstractContextManager):
                 (cid, n),
             )
         ]
+
+    def profile(self, cid):
+        return population_profile(self.db, cid)
 
     def members(self):
         cursor = self.db.execute("SELECT cid, id FROM candidates")

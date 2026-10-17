@@ -49,6 +49,7 @@ class AnalysisStore:
         *,
         query="",
         sentiment=None,
+        priority=None,
         classification=None,
         trend=None,
         created_after=None,
@@ -104,6 +105,14 @@ class AnalysisStore:
                     != trend
                 ):
                     continue
+                if (
+                    priority
+                    and (analysis.get("briefing") or {})
+                    .get("assessment", {})
+                    .get("priority")
+                    != priority
+                ):
+                    continue
                 if sentiment and analysis.get("sentiment", "unclear") != sentiment:
                     continue
                 if (
@@ -132,7 +141,20 @@ class AnalysisStore:
                         "scope": run.get("scope"),
                     }
                 )
-        if sort == "documents":
+        if sort == "priority":
+            ranks = {"high": 0, "medium": 1, "low": 2}
+            topics.sort(
+                key=lambda t: (
+                    ranks.get(
+                        (t["analysis"].get("briefing") or {})
+                        .get("assessment", {})
+                        .get("priority"),
+                        3,
+                    ),
+                    -t["document_count"],
+                )
+            )
+        elif sort == "documents":
             topics.sort(key=lambda t: (-t["document_count"], t["id"]))
         elif sort == "coverage":
             topics.sort(

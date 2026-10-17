@@ -412,3 +412,71 @@ def test_topic_filters_dates_sort_saved_entities_and_delete_preserve_documents(c
     run["status"] = "running"
     c.analysis.store.save(run)
     assert client.delete("/analysis/topics/filters:2", headers=auth).status_code == 409
+
+
+def test_rich_briefing_priority_reanalysis_and_profile_are_integrated(client):
+    from tests.test_analysis_briefing import BRIEFING
+
+    client, c = client
+    auth = {"X-API-Key": "test-auth"}
+
+    def rich(evidence):
+        doc_id = evidence["documents"][0]["id"]
+        briefing = json.loads(json.dumps(BRIEFING).replace('"a"', json.dumps(doc_id)))
+        return {**CONTENT, "evidence_ids": [doc_id], "briefing": briefing}
+
+    c.analysis.llm.analyze = Mock(side_effect=rich)
+    client.post(
+        "/documents/batch",
+        headers=auth,
+        json={"texts": ["railway funding approved", "railway funding confirmed"]},
+    )
+    job = client.post(
+        "/jobs/analyze", headers=auth, json={"time_range": "all", "top_k": 1}
+    ).json()
+    assert wait_for_job(client, job["id"])["status"] == "succeeded"
+    old_id = job["params"]["analysis_id"]
+    old_report = c.analysis.store.get(old_id)
+    topic_id = f"{old_id}:{old_report['communities'][0]['community_id']}"
+    old_members = set(
+        c.analysis.store.member_ids(
+            old_id, old_report["communities"][0]["community_id"]
+        )
+    )
+    detail = client.get("/analysis/topics/" + topic_id).json()
+    assert detail["community"]["population_profile"]["documents"] == 2
+    assert len(detail["community"]["documents"]) == 1
+    sent = c.analysis.llm.analyze.call_args.args[0]
+    assert sent["population_profile"]["documents"] == 2
+    assert "repetition_examples" not in sent["population_profile"]
+    assert (
+        client.get("/analysis/topics?priority=medium&sort=priority").json()["total"]
+        == 1
+    )
+    assert client.get("/analysis/topics?priority=high").json()["total"] == 0
+    assert client.get("/analysis/topics?priority=invalid").status_code == 422
+    client.post(
+        "/documents/batch",
+        headers=auth,
+        json={"texts": ["new railway funding outside old membership"]},
+    )
+    assert client.post("/analysis/topics/" + topic_id + "/reanalyze").status_code == 401
+    response = client.post("/analysis/topics/" + topic_id + "/reanalyze", headers=auth)
+    assert response.status_code == 202, response.text
+    assert wait_for_job(client, response.json()["id"])["status"] == "succeeded"
+    new_report = c.analysis.store.get(response.json()["params"]["analysis_id"])
+    assert (
+        new_report["id"] != old_id
+        and new_report["scope"]["origin_topic_id"] == topic_id
+    )
+    assert {
+        d["id"] for t in new_report["communities"] for d in t["documents"]
+    } == old_members
+    assert c.analysis.store.get(old_id) == old_report
+    c.settings.gemini_api_key = None
+    assert (
+        client.post(
+            "/analysis/topics/" + topic_id + "/reanalyze", headers=auth
+        ).status_code
+        == 503
+    )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -87,6 +88,30 @@ class AnalysisService:
             "membership_available": membership_available,
         }
 
+    def reanalyze(self, topic_id):
+        self.llm.require_configured()
+        topic = self.topic(topic_id, include_statistics=False)
+        if topic["run"]["status"] in ("queued", "running"):
+            raise BusyError("Wait for this analysis to finish before reanalyzing it.")
+        run_id, cid = topic["run"]["id"], topic["community"]["community_id"]
+
+        def members():
+            offset = 0
+            while batch := self.store.member_ids(run_id, cid, offset):
+                yield from batch
+                offset += len(batch)
+
+        ids = IdList(members())
+        if not ids:
+            ids = IdList(d["id"] for d in topic["community"]["documents"])
+        if not ids:
+            raise NotFoundError("This topic has no saved documents to analyze.")
+        return self.submit(
+            AnalysisRequest(time_range="all"),
+            document_ids=ids,
+            scope={"type": "topic", "origin_topic_id": topic_id, "documents": len(ids)},
+        )
+
     def submit(
         self,
         request: AnalysisRequest,
@@ -95,6 +120,7 @@ class AnalysisService:
         now: datetime | None = None,
         document_ids=None,
         source: str | None = None,
+        scope: dict | None = None,
     ):
         self.llm.require_configured()
         with self._submission_lock:
@@ -125,13 +151,16 @@ class AnalysisService:
                 "top_k": request.top_k,
                 "selection_mode": "auto",
                 "time_range": request.time_range,
-                "scope": {
-                    "type": "import",
-                    "source": source,
-                    "documents": len(document_ids),
-                }
-                if document_ids is not None
-                else {"type": "corpus"},
+                "scope": scope
+                or (
+                    {
+                        "type": "import",
+                        "source": source,
+                        "documents": len(document_ids),
+                    }
+                    if document_ids is not None
+                    else {"type": "corpus"}
+                ),
                 "max_communities": request.max_communities
                 or self.settings.analysis_max_communities,
                 "window_start": request.window_start.isoformat()
@@ -218,6 +247,9 @@ class AnalysisService:
                                 "updated_at": doc.get("updated_at"),
                                 "strength": strengths.get(doc["id"], 0.0),
                             },
+                            fingerprint=hashlib.sha256(
+                                doc["text"].encode()
+                            ).hexdigest(),
                         )
             finally:
                 if hasattr(documents, "close"):
@@ -247,6 +279,9 @@ class AnalysisService:
 
             for community in run["communities"]:
                 ctx.check_cancelled()
+                community["population_profile"] = candidates.profile(
+                    community["community_id"]
+                )
                 ids = [
                     d["id"] for d in candidates.prefix(community["community_id"], 20)
                 ]
@@ -285,6 +320,11 @@ class AnalysisService:
                     "community_version": run["community_version"],
                     "window_start": run["window_start"],
                     "window_end": run["window_end"],
+                    "population_profile": {
+                        k: v
+                        for k, v in community["population_profile"].items()
+                        if k != "repetition_examples"
+                    },
                 }
                 try:
                     count = (

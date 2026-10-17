@@ -58,11 +58,12 @@ def topics(
     sentiment: Annotated[
         str | None, Query(pattern="^(positive|negative|neutral|mixed|unclear)$")
     ] = None,
+    priority: Literal["low", "medium", "high"] | None = None,
     classification: Annotated[str | None, Query(max_length=200)] = None,
     trend: Literal["rising", "falling", "stable", "unavailable"] | None = None,
     created_after: datetime | None = None,
     created_before: datetime | None = None,
-    sort: Literal["recent", "documents", "coverage"] = "recent",
+    sort: Literal["recent", "documents", "coverage", "priority"] = "recent",
     topic_ids: Annotated[list[str] | None, Query(max_length=500)] = None,
     run_id: str | None = None,
     document_id: str | None = None,
@@ -72,6 +73,7 @@ def topics(
     return c.analysis.store.topics(
         query=q,
         sentiment=sentiment,
+        priority=priority,
         classification=classification,
         trend=trend,
         sort=sort,
@@ -112,3 +114,13 @@ def delete_topic(topic_id: str, c: ContainerDep):
         topic["run"]["id"], topic["community"]["community_id"]
     )
     return {"deleted": True, "topic_id": topic_id}
+
+
+@router.post(
+    "/analysis/topics/{topic_id}/reanalyze",
+    response_model=JobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_api_key)],
+)
+def reanalyze_topic(topic_id: str, c: ContainerDep):
+    return c.analysis.reanalyze(topic_id)
