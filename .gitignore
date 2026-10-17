@@ -3,3 +3,8 @@ dist/
 *.tsbuildinfo
 __pycache__/
 .pytest_cache/
+.venv/
+.env
+.env.*
+!.env.example
+.state/

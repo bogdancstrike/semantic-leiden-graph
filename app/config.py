@@ -8,6 +8,7 @@ the ``/config`` endpoint.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -62,6 +63,22 @@ class Settings(BaseSettings):
     # isolated documents, alone in a group of one) are left in no community.
     leiden_min_community_size: int = Field(default=2, ge=2)
 
+    # ------------------------------------------------------------------ Community analysis
+    llm_provider: Literal["gemini", "openai"] = "gemini"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = Field(default="gemini-flash-latest", min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
+    openai_api_key: SecretStr | None = None
+    openai_model: str = Field(default="gpt-4.1-mini", min_length=1)
+    llm_timeout_seconds: float = Field(default=90, gt=0, le=600)
+    llm_max_retries: int = Field(default=2, ge=0, le=5)
+    llm_max_output_tokens: int = Field(default=4096, ge=256, le=32768)
+    analysis_top_k: int = Field(default=5, ge=1, le=50)
+    analysis_max_communities: int = Field(default=100, ge=1, le=1000)
+    analysis_document_chars: int = Field(default=4000, ge=100, le=20000)
+    analysis_schedule_enabled: bool = True
+    analysis_interval_hours: int = Field(default=24, ge=1, le=8760)
+    analysis_db_path: str = ".state/analysis.sqlite3"
+
     # ------------------------------------------------------------------ Pipeline tuning
     ingest_chunk_size: int = Field(default=256, ge=1, le=10_000)
     neighbor_query_batch: int = Field(default=64, ge=1, le=1_000)
@@ -93,7 +110,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("es_password", "es_api_key", "qdrant_api_key", "api_key", mode="before")
+    @field_validator("es_password", "es_api_key", "qdrant_api_key", "api_key", "gemini_api_key", "openai_api_key", mode="before")
     @classmethod
     def _empty_secret_is_none(cls, value):
         return None if value in ("", None) else value
